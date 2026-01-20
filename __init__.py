@@ -10,7 +10,7 @@ Example workflow:
                                                    ExportCOLMAP
 
 For more information, see:
-- https://github.com/your-repo/ComfyUI-Body2COLMAP
+- https://github.com/Erant/ComfyUI-Body2COLMAP
 """
 
 from .core.comfy_utils import setup_headless_rendering

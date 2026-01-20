@@ -26,20 +26,18 @@ This node pack seamlessly integrates with [ComfyUI-SAM3DBody](https://github.com
 ### Method 2: Manual Installation
 
 ```bash
-# 1. Install body2colmap package
-cd /path/to/body2colmap
-pip install -e .
-
-# 2. Install node pack
+# Install node pack in ComfyUI custom_nodes directory
 cd ComfyUI/custom_nodes/
-git clone https://github.com/your-repo/ComfyUI-Body2COLMAP.git
+git clone https://github.com/Erant/ComfyUI-Body2COLMAP.git
 cd ComfyUI-Body2COLMAP
 pip install -r requirements.txt
 ```
 
+The `requirements.txt` will automatically install body2colmap from GitHub.
+
 ### Prerequisites
 
-- **[body2colmap](https://github.com/Erant/body2colmap)**: Core rendering library (install with `pip install -e /path/to/body2colmap`)
+- **[body2colmap](https://github.com/Erant/body2colmap)**: Core rendering library (automatically installed via requirements.txt)
 - **[ComfyUI-SAM3DBody](https://github.com/PozzettiAndrea/ComfyUI-SAM3DBody)**: Generates 3D mesh from single image
 
 ## 🚀 Quick Start
@@ -298,8 +296,8 @@ MIT License - see LICENSE file for details.
 
 ## 📮 Support & Contributing
 
-- **Issues**: [GitHub Issues](https://github.com/your-repo/ComfyUI-Body2COLMAP/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/your-repo/ComfyUI-Body2COLMAP/discussions)
+- **Issues**: [GitHub Issues](https://github.com/Erant/ComfyUI-Body2COLMAP/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/Erant/ComfyUI-Body2COLMAP/discussions)
 - **Contributing**: Pull requests welcome!
 
 ---
