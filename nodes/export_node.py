@@ -3,8 +3,45 @@
 from pathlib import Path
 import cv2
 import numpy as np
+import re
 from body2colmap.exporter import ColmapExporter
 from ..core.comfy_utils import comfy_to_cv2
+
+
+def get_next_numbered_directory(base_path: Path) -> Path:
+    """
+    Find the next available numbered directory following ComfyUI Save Image pattern.
+
+    For base path 'output/splat', finds all directories matching 'output/splat_NNNNN'
+    where NNNNN is a decimal number, then returns 'output/splat_NNNNN+1'.
+
+    Args:
+        base_path: Base directory path (e.g., 'output/splat')
+
+    Returns:
+        Path to next numbered directory (e.g., 'output/splat_00001')
+    """
+    parent = base_path.parent
+    base_name = base_path.name
+
+    # Pattern to match directories like 'splat_00001', 'splat_12345', etc.
+    pattern = re.compile(rf"^{re.escape(base_name)}_(\d+)$")
+
+    max_number = 0
+
+    # Check if parent directory exists
+    if parent.exists():
+        # Find all matching numbered directories
+        for entry in parent.iterdir():
+            if entry.is_dir():
+                match = pattern.match(entry.name)
+                if match:
+                    number = int(match.group(1))
+                    max_number = max(max_number, number)
+
+    # Return next numbered directory
+    next_number = max_number + 1
+    return parent / f"{base_name}_{next_number:05d}"
 
 
 class Body2COLMAP_ExportCOLMAP:
@@ -24,7 +61,7 @@ class Body2COLMAP_ExportCOLMAP:
                 "render_data": ("B2C_RENDER_DATA",),
                 "output_directory": ("STRING", {
                     "default": "output/colmap",
-                    "tooltip": "Directory for COLMAP files and images (flat structure)"
+                    "tooltip": "Base directory name (creates numbered dirs like Save Image: output/colmap_00001, etc.)"
                 }),
                 "image_name": ("STRING", {
                     "default": "frame",
@@ -49,8 +86,11 @@ class Body2COLMAP_ExportCOLMAP:
         """
         Export COLMAP format files.
 
+        Uses sequential directory numbering like ComfyUI's Save Image node.
+        For output_directory='output/splat', creates output/splat_00001, output/splat_00002, etc.
+
         Creates (flat structure matching body2colmap):
-            output_directory/
+            output_directory_NNNNN/
             ├── frame_00001_.png (RGBA if masks provided, RGB otherwise)
             ├── frame_00002_.png
             ├── ...
@@ -64,8 +104,9 @@ class Body2COLMAP_ExportCOLMAP:
         width, height = render_data["resolution"]
         focal_length = render_data["focal_length"]
 
-        # Create output directory
-        output_path = Path(output_directory)
+        # Create output directory with sequential numbering (like Save Image node)
+        base_path = Path(output_directory)
+        output_path = get_next_numbered_directory(base_path)
         output_path.mkdir(parents=True, exist_ok=True)
 
         # Generate image filenames using ComfyUI convention
