@@ -1,6 +1,7 @@
 """Utilities for ComfyUI integration: image format conversion and rendering setup."""
 
 import os
+import ctypes
 import numpy as np
 import torch
 from typing import List, Tuple
@@ -10,32 +11,27 @@ from numpy.typing import NDArray
 def setup_headless_rendering():
     """Configure OpenGL for headless rendering.
 
-    ComfyUI may run without a display. Try EGL first (GPU-accelerated),
-    fall back to OSMesa (software rendering) if EGL is unavailable.
+    ComfyUI may run without a display. Sets PYOPENGL_PLATFORM to EGL
+    (GPU-accelerated) if available, otherwise OSMesa (software rendering).
+
+    Must be called before any pyrender/body2colmap imports.
     """
     if "PYOPENGL_PLATFORM" in os.environ:
         # Already configured
+        print(f"[Body2COLMAP] Using pre-configured platform: {os.environ['PYOPENGL_PLATFORM']}")
         return
 
+    # Try EGL first (GPU-accelerated on NVIDIA), fallback to OSMesa
+    # The actual test happens when body2colmap creates its first renderer
     try:
-        # Try EGL first (NVIDIA GPUs, faster)
+        # Check if EGL libraries are available
+        ctypes.CDLL("libEGL.so.1")
         os.environ["PYOPENGL_PLATFORM"] = "egl"
-        import pyrender
-        # Quick test to see if EGL works
-        r = pyrender.OffscreenRenderer(64, 64)
-        r.delete()
-        print("[Body2COLMAP] Using EGL for rendering")
-    except Exception as e:
-        # Fall back to OSMesa (software rendering, slower but more compatible)
-        try:
-            os.environ["PYOPENGL_PLATFORM"] = "osmesa"
-            import pyrender
-            r = pyrender.OffscreenRenderer(64, 64)
-            r.delete()
-            print("[Body2COLMAP] Using OSMesa for rendering")
-        except Exception as e2:
-            # If both fail, just continue - renderer will be created on first use
-            print(f"[Body2COLMAP] Warning: Could not initialize renderer ({e2})")
+        print("[Body2COLMAP] Configured for EGL rendering (GPU-accelerated)")
+    except (OSError, FileNotFoundError):
+        # EGL not available, use OSMesa
+        os.environ["PYOPENGL_PLATFORM"] = "osmesa"
+        print("[Body2COLMAP] Configured for OSMesa rendering (software, slower)")
 
 
 def rendered_to_comfy(images: List[NDArray]) -> Tuple[torch.Tensor, torch.Tensor]:
