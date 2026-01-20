@@ -1,0 +1,295 @@
+"""Render node for Body2COLMAP - generates multi-view images."""
+
+from body2colmap.renderer import Renderer
+from body2colmap.path import OrbitPath
+from body2colmap.camera import Camera
+from body2colmap.utils import compute_default_focal_length
+from ..core.sam3d_adapter import sam3d_output_to_scene
+from ..core.comfy_utils import rendered_to_comfy
+from ..core.path_utils import compute_smart_orbit_radius
+
+
+class Body2COLMAP_Render:
+    """Render multi-view images of mesh from camera path configuration."""
+
+    CATEGORY = "Body2COLMAP"
+    FUNCTION = "render"
+    RETURN_TYPES = ("IMAGE", "MASK", "B2C_RENDER_DATA")
+    RETURN_NAMES = ("images", "masks", "render_data")
+    OUTPUT_TOOLTIPS = (
+        "Batch of rendered RGB images (connect to SaveImage or PreviewImage)",
+        "Batch of alpha masks for each image",
+        "Render metadata for COLMAP export (connect to ExportCOLMAP)"
+    )
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "mesh_data": ("SAM3D_OUTPUT",),
+                "path_config": ("B2C_PATH_CONFIG",),
+                "width": ("INT", {
+                    "default": 720,
+                    "min": 1,
+                    "max": 4096,
+                    "step": 1,
+                    "tooltip": "Image width in pixels"
+                }),
+                "height": ("INT", {
+                    "default": 1280,
+                    "min": 1,
+                    "max": 4096,
+                    "step": 1,
+                    "tooltip": "Image height in pixels"
+                }),
+                "render_mode": ([
+                    "mesh",
+                    "depth",
+                    "skeleton",
+                    "mesh+skeleton",
+                    "depth+skeleton"
+                ], {
+                    "default": "depth+skeleton",
+                    "tooltip": "What to render: mesh surface, depth map, skeleton, or composites"
+                }),
+            },
+            "optional": {
+                # Camera parameters
+                "focal_length": ("FLOAT", {
+                    "default": 0.0,
+                    "min": 0.0,
+                    "max": 10000.0,
+                    "step": 1.0,
+                    "tooltip": "Focal length in pixels (0=auto for ~47° FOV)"
+                }),
+                "fill_ratio": ("FLOAT", {
+                    "default": 0.8,
+                    "min": 0.1,
+                    "max": 1.0,
+                    "step": 0.05,
+                    "tooltip": "How much of viewport should contain mesh (for auto-radius)"
+                }),
+
+                # Mesh rendering options
+                "mesh_color_r": ("FLOAT", {
+                    "default": 0.65,
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "tooltip": "Mesh color red channel"
+                }),
+                "mesh_color_g": ("FLOAT", {
+                    "default": 0.74,
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "tooltip": "Mesh color green channel"
+                }),
+                "mesh_color_b": ("FLOAT", {
+                    "default": 0.86,
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "tooltip": "Mesh color blue channel"
+                }),
+                "bg_color_r": ("FLOAT", {
+                    "default": 1.0,
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "tooltip": "Background color red channel"
+                }),
+                "bg_color_g": ("FLOAT", {
+                    "default": 1.0,
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "tooltip": "Background color green channel"
+                }),
+                "bg_color_b": ("FLOAT", {
+                    "default": 1.0,
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "tooltip": "Background color blue channel"
+                }),
+
+                # Skeleton rendering options (for skeleton modes)
+                "skeleton_format": ([
+                    "openpose_body25_hands",
+                    "mhr70"
+                ], {"default": "openpose_body25_hands"}),
+                "joint_radius": ("FLOAT", {
+                    "default": 0.006,
+                    "min": 0.001,
+                    "max": 0.1,
+                    "step": 0.001,
+                    "tooltip": "Sphere radius for skeleton joints (meters)"
+                }),
+                "bone_radius": ("FLOAT", {
+                    "default": 0.003,
+                    "min": 0.001,
+                    "max": 0.05,
+                    "step": 0.001,
+                    "tooltip": "Cylinder radius for skeleton bones (meters)"
+                }),
+
+                # Depth rendering options
+                "depth_colormap": ([
+                    "grayscale",
+                    "viridis",
+                    "plasma",
+                    "inferno",
+                    "magma"
+                ], {"default": "grayscale"}),
+            }
+        }
+
+    def render(self, mesh_data, path_config, width, height, render_mode,
+               focal_length=0.0, fill_ratio=0.8,
+               mesh_color_r=0.65, mesh_color_g=0.74, mesh_color_b=0.86,
+               bg_color_r=1.0, bg_color_g=1.0, bg_color_b=1.0,
+               skeleton_format="openpose_body25_hands",
+               joint_radius=0.006, bone_radius=0.003,
+               depth_colormap="grayscale"):
+        """
+        Render all camera positions and return batch of images + masks.
+
+        Returns:
+            images: Tensor of shape [N, H, W, 3] in [0,1] range (ComfyUI IMAGE format)
+            masks: Tensor of shape [N, H, W] in [0,1] range (alpha channel)
+            render_data: Dict containing cameras and scene for COLMAP export
+        """
+        # Convert SAM3D output to Scene (with skeleton for skeleton modes)
+        include_skeleton = "skeleton" in render_mode
+        scene = sam3d_output_to_scene(mesh_data, include_skeleton=include_skeleton)
+
+        # Determine focal length
+        if focal_length <= 0:
+            focal_length = compute_default_focal_length(width)
+
+        # Get orbit center and auto-compute radius if needed
+        orbit_center = scene.get_bbox_center()
+        pattern = path_config["pattern"]
+        params = path_config["params"].copy()  # Don't modify original
+
+        # Auto-compute radius if not specified in path config
+        if params.get("radius") is None:
+            params["radius"] = compute_smart_orbit_radius(
+                scene=scene,
+                render_size=(width, height),
+                focal_length=focal_length,
+                fill_ratio=fill_ratio
+            )
+
+        # Create camera template
+        camera_template = Camera(
+            focal_length=(focal_length, focal_length),
+            image_size=(width, height)
+        )
+
+        # Create OrbitPath and generate cameras based on pattern
+        path_gen = OrbitPath(target=orbit_center, radius=params["radius"])
+
+        if pattern == "circular":
+            cameras = path_gen.circular(
+                n_frames=params["n_frames"],
+                elevation_deg=params["elevation_deg"],
+                start_azimuth_deg=params.get("start_azimuth_deg", 0.0),
+                camera_template=camera_template
+            )
+        elif pattern == "sinusoidal":
+            cameras = path_gen.sinusoidal(
+                n_frames=params["n_frames"],
+                amplitude_deg=params["amplitude_deg"],
+                n_cycles=params["n_cycles"],
+                start_azimuth_deg=params.get("start_azimuth_deg", 0.0),
+                camera_template=camera_template
+            )
+        elif pattern == "helical":
+            cameras = path_gen.helical(
+                n_frames=params["n_frames"],
+                n_loops=params["n_loops"],
+                amplitude_deg=params["amplitude_deg"],
+                lead_in_deg=params.get("lead_in_deg", 45.0),
+                lead_out_deg=params.get("lead_out_deg", 45.0),
+                start_azimuth_deg=params.get("start_azimuth_deg", 0.0),
+                camera_template=camera_template
+            )
+        else:
+            raise ValueError(f"Unknown path pattern: {pattern}")
+
+        # Prepare render colors
+        mesh_color = (mesh_color_r, mesh_color_g, mesh_color_b)
+        bg_color = (bg_color_r, bg_color_g, bg_color_b)
+
+        # Map "grayscale" to None (no colormap = grayscale depth)
+        depth_cmap = None if depth_colormap == "grayscale" else depth_colormap
+
+        # Create renderer - requires scene and render_size tuple
+        renderer = Renderer(scene=scene, render_size=(width, height))
+
+        # Render all frames
+        rendered_images = []
+
+        for i, camera in enumerate(cameras):
+            # Determine render mode
+            if render_mode == "mesh":
+                img = renderer.render_mesh(
+                    camera=camera,
+                    mesh_color=mesh_color,
+                    bg_color=bg_color,
+                )
+            elif render_mode == "depth":
+                img = renderer.render_depth(
+                    camera=camera,
+                    colormap=depth_cmap,
+                )
+            elif render_mode == "skeleton":
+                img = renderer.render_skeleton(
+                    camera=camera,
+                    target_format=skeleton_format,
+                    joint_radius=joint_radius,
+                    bone_radius=bone_radius,
+                )
+            elif render_mode == "mesh+skeleton":
+                img = renderer.render_composite(
+                    camera=camera,
+                    modes={
+                        "mesh": {"color": mesh_color, "bg_color": bg_color},
+                        "skeleton": {
+                            "target_format": skeleton_format,
+                            "joint_radius": joint_radius,
+                            "bone_radius": bone_radius
+                        }
+                    }
+                )
+            elif render_mode == "depth+skeleton":
+                img = renderer.render_composite(
+                    camera=camera,
+                    modes={
+                        "depth": {"colormap": depth_cmap},
+                        "skeleton": {
+                            "target_format": skeleton_format,
+                            "joint_radius": joint_radius,
+                            "bone_radius": bone_radius
+                        }
+                    }
+                )
+            else:
+                raise ValueError(f"Unknown render mode: {render_mode}")
+
+            rendered_images.append(img)
+
+        # Convert to ComfyUI IMAGE and MASK formats
+        images_tensor, masks_tensor = rendered_to_comfy(rendered_images)
+
+        # Package render data for COLMAP export
+        render_data = {
+            "cameras": cameras,
+            "scene": scene,
+            "resolution": (width, height),
+            "focal_length": focal_length,
+        }
+
+        return (images_tensor, masks_tensor, render_data)
