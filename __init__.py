@@ -13,11 +13,6 @@ For more information, see:
 - https://github.com/Erant/ComfyUI-Body2COLMAP
 """
 
-from .core.comfy_utils import setup_headless_rendering
-
-# Configure headless rendering before importing nodes
-setup_headless_rendering()
-
 from .nodes.path_nodes import (
     Body2COLMAP_CircularPath,
     Body2COLMAP_SinusoidalPath,

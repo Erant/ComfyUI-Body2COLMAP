@@ -1,41 +1,9 @@
 """Utilities for ComfyUI integration: image format conversion and rendering setup."""
 
-import os
 import numpy as np
 import torch
 from typing import List, Tuple
 from numpy.typing import NDArray
-
-
-def setup_headless_rendering():
-    """Configure OpenGL for headless rendering.
-
-    ComfyUI may run without a display. Try EGL first (GPU-accelerated),
-    fall back to OSMesa (software rendering) if EGL is unavailable.
-    """
-    if "PYOPENGL_PLATFORM" in os.environ:
-        # Already configured
-        return
-
-    try:
-        # Try EGL first (NVIDIA GPUs, faster)
-        os.environ["PYOPENGL_PLATFORM"] = "egl"
-        import pyrender
-        # Quick test to see if EGL works
-        r = pyrender.OffscreenRenderer(64, 64)
-        r.delete()
-        print("[Body2COLMAP] Using EGL for rendering")
-    except Exception as e:
-        # Fall back to OSMesa (software rendering, slower but more compatible)
-        try:
-            os.environ["PYOPENGL_PLATFORM"] = "osmesa"
-            import pyrender
-            r = pyrender.OffscreenRenderer(64, 64)
-            r.delete()
-            print("[Body2COLMAP] Using OSMesa for rendering")
-        except Exception as e2:
-            # If both fail, just continue - renderer will be created on first use
-            print(f"[Body2COLMAP] Warning: Could not initialize renderer ({e2})")
 
 
 def rendered_to_comfy(images: List[NDArray]) -> Tuple[torch.Tensor, torch.Tensor]:
