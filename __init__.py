@@ -13,6 +13,23 @@ For more information, see:
 - https://github.com/Erant/ComfyUI-Body2COLMAP
 """
 
+# Configure headless rendering for Linux BEFORE importing body2colmap/pyrender.
+# This must happen before any pyrender imports as it checks PYOPENGL_PLATFORM at import time.
+import os
+import sys
+
+if sys.platform.startswith('linux') and not os.environ.get('DISPLAY'):
+    # Only configure on Linux when no display is available (headless)
+    # Don't override if user has already set it
+    if 'PYOPENGL_PLATFORM' not in os.environ:
+        # Try EGL first (GPU-accelerated), fall back to OSMesa (software)
+        try:
+            import ctypes
+            ctypes.CDLL('libEGL.so.1')
+            os.environ['PYOPENGL_PLATFORM'] = 'egl'
+        except (OSError, FileNotFoundError):
+            os.environ['PYOPENGL_PLATFORM'] = 'osmesa'
+
 from .nodes.path_nodes import (
     Body2COLMAP_CircularPath,
     Body2COLMAP_SinusoidalPath,
