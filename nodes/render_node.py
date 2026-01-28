@@ -14,6 +14,26 @@ from ..core.path_utils import compute_smart_orbit_radius
 
 logger = logging.getLogger(__name__)
 
+# 35mm full-frame sensor width in mm (standard reference for focal length)
+FULL_FRAME_SENSOR_WIDTH_MM = 36.0
+
+
+def focal_length_mm_to_pixels(focal_length_mm: float, image_width: int) -> float:
+    """
+    Convert focal length from millimeters (35mm full-frame equivalent) to pixels.
+
+    Uses the standard 35mm full-frame sensor width (36mm) as reference.
+    This allows photographers to use familiar focal lengths like 35mm, 50mm, 85mm.
+
+    Args:
+        focal_length_mm: Focal length in millimeters (35mm equivalent)
+        image_width: Image width in pixels
+
+    Returns:
+        Focal length in pixels for the camera intrinsic matrix
+    """
+    return (focal_length_mm / FULL_FRAME_SENSOR_WIDTH_MM) * image_width
+
 
 class Body2COLMAP_Render:
     """Render multi-view images of mesh from camera path configuration."""
@@ -61,12 +81,12 @@ class Body2COLMAP_Render:
             },
             "optional": {
                 # Camera parameters
-                "focal_length": ("FLOAT", {
+                "focal_length_mm": ("FLOAT", {
                     "default": 0.0,
                     "min": 0.0,
-                    "max": 10000.0,
+                    "max": 500.0,
                     "step": 1.0,
-                    "tooltip": "Focal length in pixels (0=auto for ~47° FOV)"
+                    "tooltip": "Focal length in mm, 35mm full-frame equivalent (0=auto ~43mm, 50mm=standard)"
                 }),
                 "fill_ratio": ("FLOAT", {
                     "default": 0.8,
@@ -152,7 +172,7 @@ class Body2COLMAP_Render:
         }
 
     def render(self, mesh_data, path_config, width, height, render_mode,
-               focal_length=0.0, fill_ratio=0.8,
+               focal_length_mm=0.0, fill_ratio=0.8,
                mesh_color_r=0.65, mesh_color_g=0.74, mesh_color_b=0.86,
                bg_color_r=1.0, bg_color_g=1.0, bg_color_b=1.0,
                skeleton_format="openpose_body25_hands",
@@ -173,9 +193,13 @@ class Body2COLMAP_Render:
         scene = sam3d_output_to_scene(mesh_data, include_skeleton=include_skeleton)
         logger.info(f"[Body2COLMAP] Scene conversion complete ({time.time() - t0:.2f}s)")
 
-        # Determine focal length
-        if focal_length <= 0:
+        # Determine focal length in pixels
+        # Convert from mm (35mm full-frame equivalent) to pixels
+        if focal_length_mm <= 0:
+            # Auto-compute default (~43mm equivalent, ~47° FOV)
             focal_length = compute_default_focal_length(width)
+        else:
+            focal_length = focal_length_mm_to_pixels(focal_length_mm, width)
 
         # Get orbit center and auto-compute radius if needed
         orbit_center = scene.get_bbox_center()

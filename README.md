@@ -96,7 +96,7 @@ Orbit with oscillating elevation. Better coverage for complex shapes.
 - `radius` (0=auto): Orbit radius in meters
 - `fill_ratio` (0.8): How much of viewport contains mesh
 - `width/height` (512): Image dimensions for auto-radius
-- `focal_length` (0=auto): Camera focal length in pixels
+- `focal_length_mm` (0=auto): Camera focal length in mm (35mm full-frame equivalent, e.g., 50mm)
 
 ### 🎬 Render Multi-View
 
@@ -195,14 +195,16 @@ SAM3DBodyProcess → HelicalPath → Render (mesh+skeleton) → SaveImage
 
 ### Custom Focal Length
 
-Override auto-computed focal length for specific FOV:
+The `focal_length_mm` parameter uses 35mm full-frame equivalent focal lengths:
 
-```python
-# 35mm equivalent on full-frame: ~63° FOV
-focal_length = width / (2 * tan(radians(63/2)))
-```
+| Focal Length | Field of View | Use Case |
+|--------------|---------------|----------|
+| 0 (auto)     | ~47°          | Default, good for most subjects |
+| 35mm         | ~63°          | Wide angle, environmental |
+| 50mm         | ~47°          | Standard, natural perspective |
+| 85mm         | ~28°          | Portrait, compressed perspective |
 
-Set `focal_length` in both path generator (optional) and render node.
+Set `focal_length_mm` in the Render node to control the camera's field of view.
 
 ### Match Existing Image Filenames
 
