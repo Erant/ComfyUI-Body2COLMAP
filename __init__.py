@@ -18,6 +18,16 @@ For more information, see:
 import os
 import sys
 
+# Diagnostic: Check if OpenGL/pyrender was already imported (would be too late to configure)
+_opengl_already_imported = 'OpenGL' in sys.modules
+_pyrender_already_imported = 'pyrender' in sys.modules
+
+print(f"[Body2COLMAP] Platform: {sys.platform}")
+print(f"[Body2COLMAP] DISPLAY env: {os.environ.get('DISPLAY', '<not set>')}")
+print(f"[Body2COLMAP] PYOPENGL_PLATFORM env: {os.environ.get('PYOPENGL_PLATFORM', '<not set>')}")
+print(f"[Body2COLMAP] OpenGL already imported: {_opengl_already_imported}")
+print(f"[Body2COLMAP] pyrender already imported: {_pyrender_already_imported}")
+
 if sys.platform.startswith('linux') and not os.environ.get('DISPLAY'):
     # Only configure on Linux when no display is available (headless)
     # Don't override if user has already set it
@@ -27,8 +37,14 @@ if sys.platform.startswith('linux') and not os.environ.get('DISPLAY'):
             import ctypes
             ctypes.CDLL('libEGL.so.1')
             os.environ['PYOPENGL_PLATFORM'] = 'egl'
+            print("[Body2COLMAP] Set PYOPENGL_PLATFORM=egl (EGL available)")
         except (OSError, FileNotFoundError):
             os.environ['PYOPENGL_PLATFORM'] = 'osmesa'
+            print("[Body2COLMAP] Set PYOPENGL_PLATFORM=osmesa (EGL not available)")
+    else:
+        print(f"[Body2COLMAP] PYOPENGL_PLATFORM already set, not modifying")
+else:
+    print(f"[Body2COLMAP] Headless setup skipped (not Linux headless)")
 
 from .nodes.path_nodes import (
     Body2COLMAP_CircularPath,
