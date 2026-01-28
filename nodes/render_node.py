@@ -252,19 +252,27 @@ class Body2COLMAP_Render:
 
         for i, camera in enumerate(cameras):
             frame_start = time.time()
+            if i == 0:
+                logger.info(f"[Body2COLMAP] Rendering first frame...")
             # Determine render mode
             if render_mode == "mesh":
+                if i == 0:
+                    logger.info("[Body2COLMAP] Calling render_mesh...")
                 img = renderer.render_mesh(
                     camera=camera,
                     mesh_color=mesh_color,
                     bg_color=bg_color,
                 )
             elif render_mode == "depth":
+                if i == 0:
+                    logger.info("[Body2COLMAP] Calling render_depth...")
                 img = renderer.render_depth(
                     camera=camera,
                     colormap=depth_cmap,
                 )
             elif render_mode == "skeleton":
+                if i == 0:
+                    logger.info("[Body2COLMAP] Calling render_skeleton...")
                 img = renderer.render_skeleton(
                     camera=camera,
                     target_format=skeleton_format,
@@ -272,6 +280,8 @@ class Body2COLMAP_Render:
                     bone_radius=bone_radius,
                 )
             elif render_mode == "mesh+skeleton":
+                if i == 0:
+                    logger.info("[Body2COLMAP] Calling render_composite (mesh+skeleton)...")
                 img = renderer.render_composite(
                     camera=camera,
                     modes={
@@ -284,6 +294,8 @@ class Body2COLMAP_Render:
                     }
                 )
             elif render_mode == "depth+skeleton":
+                if i == 0:
+                    logger.info("[Body2COLMAP] Calling render_composite (depth+skeleton)...")
                 img = renderer.render_composite(
                     camera=camera,
                     modes={
@@ -297,6 +309,8 @@ class Body2COLMAP_Render:
                 )
             else:
                 raise ValueError(f"Unknown render mode: {render_mode}")
+            if i == 0:
+                logger.info(f"[Body2COLMAP] First frame complete ({time.time() - frame_start:.2f}s)")
 
             rendered_images.append(img)
             frame_time = time.time() - frame_start
