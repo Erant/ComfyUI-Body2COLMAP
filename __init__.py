@@ -28,9 +28,10 @@ print(f"[Body2COLMAP] PYOPENGL_PLATFORM env: {os.environ.get('PYOPENGL_PLATFORM'
 print(f"[Body2COLMAP] OpenGL already imported: {_opengl_already_imported}")
 print(f"[Body2COLMAP] pyrender already imported: {_pyrender_already_imported}")
 
-if sys.platform.startswith('linux') and not os.environ.get('DISPLAY'):
-    # Only configure on Linux when no display is available (headless)
-    # Don't override if user has already set it
+if sys.platform.startswith('linux'):
+    # On Linux, always prefer EGL for offscreen rendering - it works reliably both
+    # with and without a display, and avoids hangs when DISPLAY is set but X server
+    # is not accessible.
     if 'PYOPENGL_PLATFORM' not in os.environ:
         # Try EGL first (GPU-accelerated), fall back to OSMesa (software)
         try:
@@ -44,7 +45,7 @@ if sys.platform.startswith('linux') and not os.environ.get('DISPLAY'):
     else:
         print(f"[Body2COLMAP] PYOPENGL_PLATFORM already set, not modifying")
 else:
-    print(f"[Body2COLMAP] Headless setup skipped (not Linux headless)")
+    print(f"[Body2COLMAP] OpenGL platform setup skipped (not Linux)")
 
 from .nodes.path_nodes import (
     Body2COLMAP_CircularPath,
