@@ -1,5 +1,9 @@
 """Render node for Body2COLMAP - generates multi-view images."""
 
+import logging
+import time
+
+import comfy.utils
 from body2colmap.renderer import Renderer
 from body2colmap.path import OrbitPath
 from body2colmap.camera import Camera
@@ -7,6 +11,8 @@ from body2colmap.utils import compute_default_focal_length
 from ..core.sam3d_adapter import sam3d_output_to_scene
 from ..core.comfy_utils import rendered_to_comfy
 from ..core.path_utils import compute_smart_orbit_radius
+
+logger = logging.getLogger(__name__)
 
 
 class Body2COLMAP_Render:
@@ -162,7 +168,10 @@ class Body2COLMAP_Render:
         """
         # Convert SAM3D output to Scene (with skeleton for skeleton modes)
         include_skeleton = "skeleton" in render_mode
+        logger.info("[Body2COLMAP] Converting SAM3D output to scene...")
+        t0 = time.time()
         scene = sam3d_output_to_scene(mesh_data, include_skeleton=include_skeleton)
+        logger.info(f"[Body2COLMAP] Scene conversion complete ({time.time() - t0:.2f}s)")
 
         # Determine focal length
         if focal_length <= 0:
@@ -189,6 +198,8 @@ class Body2COLMAP_Render:
         )
 
         # Create OrbitPath and generate cameras based on pattern
+        logger.info(f"[Body2COLMAP] Creating camera path: {pattern} with radius={params['radius']:.3f}")
+        t0 = time.time()
         path_gen = OrbitPath(target=orbit_center, radius=params["radius"])
 
         if pattern == "circular":
@@ -218,6 +229,7 @@ class Body2COLMAP_Render:
             )
         else:
             raise ValueError(f"Unknown path pattern: {pattern}")
+        logger.info(f"[Body2COLMAP] Camera path created: {len(cameras)} cameras ({time.time() - t0:.2f}s)")
 
         # Prepare render colors
         mesh_color = (mesh_color_r, mesh_color_g, mesh_color_b)
@@ -227,12 +239,19 @@ class Body2COLMAP_Render:
         depth_cmap = None if depth_colormap == "grayscale" else depth_colormap
 
         # Create renderer - requires scene and render_size tuple
+        logger.info(f"[Body2COLMAP] Creating renderer (size={width}x{height})...")
+        t0 = time.time()
         renderer = Renderer(scene=scene, render_size=(width, height))
+        logger.info(f"[Body2COLMAP] Renderer created ({time.time() - t0:.2f}s)")
 
         # Render all frames
         rendered_images = []
+        n_frames = len(cameras)
+        logger.info(f"[Body2COLMAP] Starting render loop: {n_frames} frames, mode={render_mode}")
+        pbar = comfy.utils.ProgressBar(n_frames)
 
         for i, camera in enumerate(cameras):
+            frame_start = time.time()
             # Determine render mode
             if render_mode == "mesh":
                 img = renderer.render_mesh(
@@ -280,9 +299,17 @@ class Body2COLMAP_Render:
                 raise ValueError(f"Unknown render mode: {render_mode}")
 
             rendered_images.append(img)
+            frame_time = time.time() - frame_start
+            logger.debug(f"[Body2COLMAP] Frame {i+1}/{n_frames} rendered ({frame_time:.2f}s)")
+            pbar.update(1)
+
+        logger.info(f"[Body2COLMAP] Render loop complete")
 
         # Convert to ComfyUI IMAGE and MASK formats
+        logger.info("[Body2COLMAP] Converting rendered images to ComfyUI format...")
+        t0 = time.time()
         images_tensor, masks_tensor = rendered_to_comfy(rendered_images)
+        logger.info(f"[Body2COLMAP] Conversion complete ({time.time() - t0:.2f}s)")
 
         # Package render data for COLMAP export
         render_data = {
