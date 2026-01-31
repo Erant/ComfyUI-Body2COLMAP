@@ -97,10 +97,14 @@ class Body2COLMAP_ExportCOLMAP:
             ├── cameras.txt   (camera intrinsics)
             ├── images.txt    (camera extrinsics per image)
             └── points3D.txt  (initial point cloud)
+
+        Note:
+            Works with both mesh Scene and SplatScene render data.
+            Point cloud is sampled from mesh vertices or Gaussian centers.
         """
         # Extract data
         cameras = render_data["cameras"]
-        scene = render_data["scene"]
+        scene = render_data["scene"]  # Can be Scene or SplatScene
         width, height = render_data["resolution"]
         focal_length = render_data["focal_length"]
 

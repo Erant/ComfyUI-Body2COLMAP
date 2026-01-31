@@ -15,3 +15,8 @@ class B2C_PATH_CONFIG(TypedDict):
     """
     pattern: str
     params: Dict[str, Any]
+
+
+# Custom type identifier for Gaussian Splat scenes
+# The actual data is a SplatScene object from body2colmap.splat_scene
+SPLAT_SCENE = "SPLAT_SCENE"

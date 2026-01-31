@@ -1,0 +1,262 @@
+"""Splat render node - renders Gaussian Splats using gsplat."""
+
+import logging
+import time
+
+import comfy.utils
+from body2colmap.path import OrbitPath
+from body2colmap.camera import Camera
+from body2colmap.utils import compute_default_focal_length
+from ..core.comfy_utils import rendered_to_comfy
+from ..core.path_utils import compute_smart_orbit_radius
+from ..core.camera_utils import focal_length_mm_to_pixels
+
+logger = logging.getLogger(__name__)
+
+
+class Body2COLMAP_RenderSplat:
+    """Render Gaussian Splats from camera path configuration."""
+
+    CATEGORY = "Body2COLMAP"
+    FUNCTION = "render"
+    RETURN_TYPES = ("IMAGE", "MASK", "B2C_RENDER_DATA")
+    RETURN_NAMES = ("images", "masks", "render_data")
+    OUTPUT_TOOLTIPS = (
+        "Batch of rendered RGB images (connect to SaveImage or PreviewImage)",
+        "Batch of alpha masks for each image",
+        "Render metadata for COLMAP export (connect to ExportCOLMAP)"
+    )
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "splat_scene": ("SPLAT_SCENE",),
+                "path_config": ("B2C_PATH_CONFIG",),
+                "width": ("INT", {
+                    "default": 720,
+                    "min": 1,
+                    "max": 4096,
+                    "step": 1,
+                    "tooltip": "Image width in pixels"
+                }),
+                "height": ("INT", {
+                    "default": 1280,
+                    "min": 1,
+                    "max": 4096,
+                    "step": 1,
+                    "tooltip": "Image height in pixels"
+                }),
+            },
+            "optional": {
+                # Camera parameters
+                "focal_length_mm": ("FLOAT", {
+                    "default": 0.0,
+                    "min": 0.0,
+                    "max": 500.0,
+                    "step": 1.0,
+                    "tooltip": "Focal length in mm, 35mm full-frame equivalent (0=auto ~43mm, 50mm=standard)"
+                }),
+                "fill_ratio": ("FLOAT", {
+                    "default": 0.8,
+                    "min": 0.1,
+                    "max": 1.0,
+                    "step": 0.05,
+                    "tooltip": "How much of viewport should contain scene (for auto-radius)"
+                }),
+
+                # Background color (no mesh color for splats - they have baked appearance)
+                "bg_color_r": ("FLOAT", {
+                    "default": 1.0,
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "tooltip": "Background color red channel"
+                }),
+                "bg_color_g": ("FLOAT", {
+                    "default": 1.0,
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "tooltip": "Background color green channel"
+                }),
+                "bg_color_b": ("FLOAT", {
+                    "default": 1.0,
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "tooltip": "Background color blue channel"
+                }),
+
+                # Device selection for torch/gsplat
+                "device": (["cuda", "cpu"], {
+                    "default": "cuda",
+                    "tooltip": "Device for rendering (cuda strongly recommended for speed)"
+                }),
+            }
+        }
+
+    def render(self, splat_scene, path_config, width, height,
+               focal_length_mm=0.0, fill_ratio=0.8,
+               bg_color_r=1.0, bg_color_g=1.0, bg_color_b=1.0,
+               device="cuda"):
+        """
+        Render all camera positions and return batch of images + masks.
+
+        Args:
+            splat_scene: SplatScene object from LoadSplat node
+            path_config: B2C_PATH_CONFIG from path generator node
+            width: Image width in pixels
+            height: Image height in pixels
+            focal_length_mm: Focal length in mm (0=auto)
+            fill_ratio: Viewport fill ratio for auto-radius
+            bg_color_r/g/b: Background color RGB components
+            device: torch device ("cuda" or "cpu")
+
+        Returns:
+            images: Tensor of shape [N, H, W, 3] in [0,1] range (ComfyUI IMAGE format)
+            masks: Tensor of shape [N, H, W] in [0,1] range (alpha channel)
+            render_data: Dict containing cameras and scene for COLMAP export
+        """
+        # Import SplatRenderer
+        try:
+            from body2colmap.splat_renderer import SplatRenderer
+        except ImportError as e:
+            raise ImportError(
+                "Failed to import body2colmap.splat_renderer. "
+                "Make sure body2colmap is installed with splat support: "
+                "pip install body2colmap[splat]"
+            ) from e
+
+        logger.info(
+            f"[Body2COLMAP] Rendering splat scene: "
+            f"{len(splat_scene)} Gaussians, SH degree {splat_scene.sh_degree}"
+        )
+
+        # Determine focal length in pixels
+        if focal_length_mm <= 0:
+            # Auto-compute default (~43mm equivalent, ~47° FOV)
+            focal_length = compute_default_focal_length(width)
+        else:
+            focal_length = focal_length_mm_to_pixels(focal_length_mm, width)
+
+        # Get orbit center and auto-compute radius if needed
+        orbit_center = splat_scene.get_bbox_center()
+        pattern = path_config["pattern"]
+        params = path_config["params"].copy()  # Don't modify original
+
+        # Auto-compute radius if not specified in path config
+        if params.get("radius") is None:
+            params["radius"] = compute_smart_orbit_radius(
+                scene=splat_scene,
+                render_size=(width, height),
+                focal_length=focal_length,
+                fill_ratio=fill_ratio
+            )
+
+        # Create camera template
+        camera_template = Camera(
+            focal_length=(focal_length, focal_length),
+            image_size=(width, height)
+        )
+
+        # Create OrbitPath and generate cameras based on pattern
+        logger.info(
+            f"[Body2COLMAP] Creating camera path: {pattern} "
+            f"with radius={params['radius']:.3f}"
+        )
+        t0 = time.time()
+        path_gen = OrbitPath(target=orbit_center, radius=params["radius"])
+
+        if pattern == "circular":
+            cameras = path_gen.circular(
+                n_frames=params["n_frames"],
+                elevation_deg=params["elevation_deg"],
+                start_azimuth_deg=params.get("start_azimuth_deg", 0.0),
+                camera_template=camera_template
+            )
+        elif pattern == "sinusoidal":
+            cameras = path_gen.sinusoidal(
+                n_frames=params["n_frames"],
+                amplitude_deg=params["amplitude_deg"],
+                n_cycles=params["n_cycles"],
+                start_azimuth_deg=params.get("start_azimuth_deg", 0.0),
+                camera_template=camera_template
+            )
+        elif pattern == "helical":
+            cameras = path_gen.helical(
+                n_frames=params["n_frames"],
+                n_loops=params["n_loops"],
+                amplitude_deg=params["amplitude_deg"],
+                lead_in_deg=params.get("lead_in_deg", 45.0),
+                lead_out_deg=params.get("lead_out_deg", 45.0),
+                start_azimuth_deg=params.get("start_azimuth_deg", 0.0),
+                camera_template=camera_template
+            )
+        else:
+            raise ValueError(f"Unknown path pattern: {pattern}")
+
+        logger.info(
+            f"[Body2COLMAP] Camera path created: {len(cameras)} cameras "
+            f"({time.time() - t0:.2f}s)"
+        )
+
+        # Prepare background color
+        bg_color = (bg_color_r, bg_color_g, bg_color_b)
+
+        # Create SplatRenderer
+        logger.info(
+            f"[Body2COLMAP] Creating SplatRenderer "
+            f"(size={width}x{height}, device={device})..."
+        )
+        t0 = time.time()
+        renderer = SplatRenderer(
+            scene=splat_scene,
+            render_size=(width, height),
+            device=device
+        )
+        logger.info(f"[Body2COLMAP] Renderer created ({time.time() - t0:.2f}s)")
+
+        # Render all frames
+        rendered_images = []
+        n_frames = len(cameras)
+        logger.info(f"[Body2COLMAP] Starting render loop: {n_frames} frames")
+        pbar = comfy.utils.ProgressBar(n_frames)
+
+        for i, camera in enumerate(cameras):
+            frame_start = time.time()
+            if i == 0:
+                logger.info("[Body2COLMAP] Rendering first frame...")
+
+            # Render splat (returns RGBA uint8)
+            img = renderer.render(camera=camera, bg_color=bg_color)
+
+            if i == 0:
+                logger.info(
+                    f"[Body2COLMAP] First frame complete ({time.time() - frame_start:.2f}s)"
+                )
+
+            rendered_images.append(img)
+            frame_time = time.time() - frame_start
+            logger.debug(
+                f"[Body2COLMAP] Frame {i+1}/{n_frames} rendered ({frame_time:.2f}s)"
+            )
+            pbar.update(1)
+
+        logger.info("[Body2COLMAP] Render loop complete")
+
+        # Convert to ComfyUI IMAGE and MASK formats
+        logger.info("[Body2COLMAP] Converting rendered images to ComfyUI format...")
+        t0 = time.time()
+        images_tensor, masks_tensor = rendered_to_comfy(rendered_images)
+        logger.info(f"[Body2COLMAP] Conversion complete ({time.time() - t0:.2f}s)")
+
+        # Package render data for COLMAP export
+        render_data = {
+            "cameras": cameras,
+            "scene": splat_scene,  # SplatScene instead of Scene
+            "resolution": (width, height),
+            "focal_length": focal_length,
+        }
+
+        return (images_tensor, masks_tensor, render_data)

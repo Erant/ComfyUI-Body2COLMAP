@@ -53,6 +53,8 @@ from .nodes.path_nodes import (
     Body2COLMAP_HelicalPath,
 )
 from .nodes.render_node import Body2COLMAP_Render
+from .nodes.splat_loader_node import Body2COLMAP_LoadSplat
+from .nodes.splat_render_node import Body2COLMAP_RenderSplat
 from .nodes.export_node import Body2COLMAP_ExportCOLMAP
 
 # Node class mappings for ComfyUI
@@ -61,6 +63,8 @@ NODE_CLASS_MAPPINGS = {
     "Body2COLMAP_SinusoidalPath": Body2COLMAP_SinusoidalPath,
     "Body2COLMAP_HelicalPath": Body2COLMAP_HelicalPath,
     "Body2COLMAP_Render": Body2COLMAP_Render,
+    "Body2COLMAP_LoadSplat": Body2COLMAP_LoadSplat,
+    "Body2COLMAP_RenderSplat": Body2COLMAP_RenderSplat,
     "Body2COLMAP_ExportCOLMAP": Body2COLMAP_ExportCOLMAP,
 }
 
@@ -69,7 +73,9 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Body2COLMAP_CircularPath": "🌐 Circular Path",
     "Body2COLMAP_SinusoidalPath": "🌊 Sinusoidal Path",
     "Body2COLMAP_HelicalPath": "🌀 Helical Path",
-    "Body2COLMAP_Render": "🎬 Render Multi-View",
+    "Body2COLMAP_Render": "🎬 Render Multi-View (Mesh)",
+    "Body2COLMAP_LoadSplat": "✨ Load Gaussian Splat",
+    "Body2COLMAP_RenderSplat": "🎬 Render Multi-View (Splat)",
     "Body2COLMAP_ExportCOLMAP": "📦 Export COLMAP",
 }
 
