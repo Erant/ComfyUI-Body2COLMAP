@@ -90,8 +90,12 @@ class Body2COLMAP_SaveDataset:
                 "b2c_data": ("B2C_COLMAP_METADATA",),
                 "images": ("IMAGE",),
                 "output_directory": ("STRING", {
-                    "default": "output/b2c_dataset",
-                    "tooltip": "Base directory name (creates numbered dirs: output/b2c_dataset_00001, etc.)"
+                    "default": "b2c_dataset",
+                    "tooltip": "Base directory name (in output folder)"
+                }),
+                "auto_increment": ("BOOLEAN", {
+                    "default": True,
+                    "tooltip": "Auto-number directories (dataset_00001, dataset_00002, etc.)"
                 }),
             },
             "optional": {
@@ -102,12 +106,13 @@ class Body2COLMAP_SaveDataset:
             }
         }
 
-    def save(self, b2c_data, images, output_directory, masks=None, reference_image=None):
+    def save(self, b2c_data, images, output_directory, auto_increment=True, masks=None, reference_image=None):
         """
         Save Body2COLMAP dataset to disk.
 
         Creates directory structure:
-            output_directory_NNNNN/
+            output/directory/  (if auto_increment=False)
+            output/directory_NNNNN/  (if auto_increment=True)
             ├── frame_00001_.png
             ├── frame_00002_.png
             ├── ...
@@ -118,16 +123,24 @@ class Body2COLMAP_SaveDataset:
         Args:
             b2c_data: B2C_COLMAP_METADATA from render nodes
             images: ComfyUI IMAGE tensor
-            output_directory: Base directory path
+            output_directory: Base directory name (in output folder)
+            auto_increment: If True, create numbered directories (dataset_00001, etc.)
             masks: Optional ComfyUI MASK tensor
             reference_image: Optional reference image for preview
 
         Returns:
             Absolute path to created directory
         """
-        # Create output directory with sequential numbering
-        base_path = Path(output_directory)
-        output_path = get_next_numbered_directory(base_path)
+        # Build output path
+        base_path = Path("output") / output_directory
+
+        if auto_increment:
+            # Create numbered directory
+            output_path = get_next_numbered_directory(base_path)
+        else:
+            # Use exact directory
+            output_path = base_path
+
         output_path.mkdir(parents=True, exist_ok=True)
 
         logger.info(f"[Body2COLMAP] Saving dataset to: {output_path}")

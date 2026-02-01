@@ -84,6 +84,9 @@ def extract_alpha_to_comfy_mask(images_bgra: list) -> torch.Tensor:
 class Body2COLMAP_LoadDataset:
     """Load Body2COLMAP dataset from disk."""
 
+    # Class-level state for auto-increment
+    _auto_increment_counters = {}
+
     CATEGORY = "Body2COLMAP"
     FUNCTION = "load"
     RETURN_TYPES = ("B2C_COLMAP_METADATA", "IMAGE", "MASK", "IMAGE")
@@ -100,18 +103,29 @@ class Body2COLMAP_LoadDataset:
         return {
             "required": {
                 "directory": ("STRING", {
-                    "default": "",
-                    "tooltip": "Path to saved Body2COLMAP dataset directory"
-                })
+                    "default": "b2c_dataset",
+                    "tooltip": "Base directory name (in output folder)"
+                }),
+                "index": ("INT", {
+                    "default": -1,
+                    "min": -1,
+                    "max": 99999,
+                    "tooltip": "Dataset index (-1 = use directory as-is, >=0 = append _NNNNN)"
+                }),
+                "auto_increment": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "Automatically increment index after each load"
+                }),
             }
         }
 
-    def load(self, directory):
+    def load(self, directory, index=-1, auto_increment=False):
         """
         Load Body2COLMAP dataset from disk.
 
         Reads from directory structure:
-            directory/
+            output/directory/  (if index=-1)
+            output/directory_NNNNN/  (if index>=0)
             ├── frame_00001_.png
             ├── frame_00002_.png
             ├── ...
@@ -120,7 +134,9 @@ class Body2COLMAP_LoadDataset:
             └── pointcloud.npz
 
         Args:
-            directory: Path to dataset directory
+            directory: Base directory name (in output folder)
+            index: Dataset index (-1 = exact path, >=0 = append _NNNNN)
+            auto_increment: If True, increment index after loading for next execution
 
         Returns:
             b2c_data: B2C_COLMAP_METADATA
@@ -128,12 +144,36 @@ class Body2COLMAP_LoadDataset:
             masks: ComfyUI MASK tensor
             reference_image: ComfyUI IMAGE tensor (or empty if not present)
         """
-        dataset_path = Path(directory)
+        # Handle auto-increment
+        counter_key = directory
+        if auto_increment and index >= 0:
+            # Get or initialize counter for this directory
+            if counter_key not in self._auto_increment_counters:
+                self._auto_increment_counters[counter_key] = index
+
+            # Use current counter value
+            current_index = self._auto_increment_counters[counter_key]
+        else:
+            current_index = index
+
+        # Build full path
+        if current_index == -1:
+            # Use directory as-is
+            dataset_path = Path("output") / directory
+        else:
+            # Append _NNNNN to directory
+            numbered_dir = f"{directory}_{current_index:05d}"
+            dataset_path = Path("output") / numbered_dir
 
         if not dataset_path.exists():
             raise FileNotFoundError(f"Dataset directory not found: {dataset_path}")
 
         logger.info(f"[Body2COLMAP] Loading dataset from: {dataset_path}")
+
+        # Increment counter for next execution if auto-increment enabled
+        if auto_increment and index >= 0:
+            self._auto_increment_counters[counter_key] += 1
+            logger.info(f"[Body2COLMAP] Auto-increment: next load will use index {self._auto_increment_counters[counter_key]}")
 
         # Load metadata.json
         metadata_path = dataset_path / "metadata.json"

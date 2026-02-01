@@ -60,8 +60,12 @@ class Body2COLMAP_ExportCOLMAP:
             "required": {
                 "b2c_data": ("B2C_COLMAP_METADATA",),
                 "output_directory": ("STRING", {
-                    "default": "output/colmap",
-                    "tooltip": "Base directory name (creates numbered dirs like Save Image: output/colmap_00001, etc.)"
+                    "default": "colmap",
+                    "tooltip": "Base directory name (in output folder)"
+                }),
+                "auto_increment": ("BOOLEAN", {
+                    "default": True,
+                    "tooltip": "Auto-number directories (colmap_00001, colmap_00002, etc.)"
                 }),
             },
             "optional": {
@@ -70,21 +74,26 @@ class Body2COLMAP_ExportCOLMAP:
             }
         }
 
-    def export(self, b2c_data, output_directory, images=None, masks=None):
+    def export(self, b2c_data, output_directory, auto_increment=True, images=None, masks=None):
         """
         Export COLMAP format files.
 
-        Uses sequential directory numbering like ComfyUI's Save Image node.
-        For output_directory='output/colmap', creates output/colmap_00001, output/colmap_00002, etc.
-
         Creates (flat structure matching body2colmap):
-            output_directory_NNNNN/
+            output/directory/  (if auto_increment=False)
+            output/directory_NNNNN/  (if auto_increment=True)
             ├── frame_00001_.png (RGBA if masks provided, RGB otherwise)
             ├── frame_00002_.png
             ├── ...
             ├── cameras.txt   (camera intrinsics)
             ├── images.txt    (camera extrinsics per image)
             └── points3D.txt  (initial point cloud)
+
+        Args:
+            b2c_data: B2C_COLMAP_METADATA from render nodes or LoadDataset
+            output_directory: Base directory name (in output folder)
+            auto_increment: If True, create numbered directories (colmap_00001, etc.)
+            images: Optional ComfyUI IMAGE tensor to save alongside COLMAP files
+            masks: Optional ComfyUI MASK tensor for alpha channel
 
         Note:
             Point cloud must be pre-sampled in render nodes and included in b2c_data.
@@ -95,9 +104,16 @@ class Body2COLMAP_ExportCOLMAP:
         points_3d = b2c_data["points_3d"]
         width, height = b2c_data["resolution"]
 
-        # Create output directory with sequential numbering (like Save Image node)
-        base_path = Path(output_directory)
-        output_path = get_next_numbered_directory(base_path)
+        # Build output path
+        base_path = Path("output") / output_directory
+
+        if auto_increment:
+            # Create numbered directory
+            output_path = get_next_numbered_directory(base_path)
+        else:
+            # Use exact directory
+            output_path = base_path
+
         output_path.mkdir(parents=True, exist_ok=True)
 
         # Save images if provided
