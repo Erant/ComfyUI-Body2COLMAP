@@ -177,14 +177,16 @@ class Body2COLMAP_LoadDataset:
         # Determine actual index to use (handles batch mode)
         if index_control == "fixed":
             # Use index as-is, no state tracking
+            # Clear any cached state to allow fresh start if switching back to increment/decrement
+            if unique_id in self._batch_state:
+                del self._batch_state[unique_id]
             actual_index = index
         else:
             # Use batch state to track index across executions (keyed by node ID)
+            # Note: Once initialized, state persists and widget changes are ignored.
+            # To reset: switch to "fixed" mode, change index, then switch back.
             if unique_id not in self._batch_state:
                 # First execution for this node - use the widget value
-                self._batch_state[unique_id] = index
-            elif self._batch_state[unique_id] != index:
-                # Widget value changed - user manually updated it, use new value
                 self._batch_state[unique_id] = index
             actual_index = self._batch_state[unique_id]
 
