@@ -116,11 +116,11 @@ class Body2COLMAP_LoadDataset:
                     "default": -1,
                     "min": -1,
                     "max": 99999,
-                    "tooltip": "Dataset index (-1 = use directory as-is, >=0 = append _NNNNN)"
+                    "tooltip": "Starting dataset index (-1 = use directory as-is, >=0 = append _NNNNN)"
                 }),
                 "index_control": (["fixed", "increment", "decrement"], {
                     "default": "fixed",
-                    "tooltip": "How to update index after execution (fixed=no change, increment=+1, decrement=-1)"
+                    "tooltip": "Auto-increment behavior: fixed=use index as-is, increment=+1 per run, decrement=-1 per run. State tracked internally for batch mode. Switch to 'fixed' to reset."
                 }),
             },
             "hidden": {
@@ -160,12 +160,13 @@ class Body2COLMAP_LoadDataset:
 
         Args:
             directory: Base directory name (in output folder)
-            index: Dataset index (-1 = exact path, >=0 = append _NNNNN)
-            index_control: Control for index behavior after execution
-                          - fixed: Keep index unchanged
-                          - increment: Load next dataset (+1) on subsequent runs
-                          - decrement: Load previous dataset (-1) on subsequent runs
-                          Supports both single-run and batch queue modes.
+            index: Starting dataset index (-1 = exact path, >=0 = append _NNNNN)
+            index_control: Auto-increment control (state tracked internally)
+                          - fixed: Always use index widget value, clear any state
+                          - increment: Start at index, then +1 per execution
+                          - decrement: Start at index, then -1 per execution
+                          Note: Widget shows starting value only. Actual index tracked internally.
+                          To reset: switch to "fixed", change index, switch back.
             unique_id: Node ID (hidden parameter, auto-provided by ComfyUI)
 
         Returns:
@@ -305,17 +306,9 @@ class Body2COLMAP_LoadDataset:
             print("[Body2COLMAP] - reference.png")
 
         # Update batch state for next execution
-        next_index = actual_index
         if index_control == "increment":
-            next_index = actual_index + 1
-            self._batch_state[unique_id] = next_index
+            self._batch_state[unique_id] = actual_index + 1
         elif index_control == "decrement":
-            next_index = actual_index - 1
-            self._batch_state[unique_id] = next_index
+            self._batch_state[unique_id] = actual_index - 1
 
-        # Return with UI updates to trigger JavaScript onExecuted hook
-        # Return next_index so the JavaScript can update the widget for single-run mode
-        return {
-            "ui": {"index": [next_index]},
-            "result": (b2c_data, images_tensor, masks_tensor, reference_tensor)
-        }
+        return (b2c_data, images_tensor, masks_tensor, reference_tensor)
