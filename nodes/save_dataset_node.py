@@ -2,6 +2,7 @@
 
 import json
 import logging
+import shutil
 from pathlib import Path
 import numpy as np
 import cv2
@@ -103,10 +104,13 @@ class Body2COLMAP_SaveDataset:
                 "reference_image": ("IMAGE", {
                     "tooltip": "Optional reference image saved as reference.png for preview"
                 }),
+                "splat_scene": ("SPLAT_SCENE", {
+                    "tooltip": "Optional Gaussian Splat to save with dataset"
+                }),
             }
         }
 
-    def save(self, b2c_data, images, output_directory, auto_increment=True, masks=None, reference_image=None):
+    def save(self, b2c_data, images, output_directory, auto_increment=True, masks=None, reference_image=None, splat_scene=None):
         """
         Save Body2COLMAP dataset to disk.
 
@@ -117,6 +121,7 @@ class Body2COLMAP_SaveDataset:
             ├── frame_00002_.png
             ├── ...
             ├── reference.png (optional)
+            ├── splat.ply (optional)
             ├── metadata.json
             └── pointcloud.npz
 
@@ -127,6 +132,7 @@ class Body2COLMAP_SaveDataset:
             auto_increment: If True, create numbered directories (dataset_00001, etc.)
             masks: Optional ComfyUI MASK tensor
             reference_image: Optional reference image for preview
+            splat_scene: Optional SPLAT_SCENE to save with dataset
 
         Returns:
             Absolute path to created directory
@@ -209,6 +215,22 @@ class Body2COLMAP_SaveDataset:
             ]
         }
 
+        # Save splat if provided
+        if splat_scene is not None:
+            splat_filename = "splat.ply"
+            splat_path = output_path / splat_filename
+
+            # Copy from b2c_data's splat_path if available
+            source_splat = b2c_data.get("splat_path")
+            if source_splat and Path(source_splat).exists():
+                shutil.copy(source_splat, splat_path)
+                logger.info(f"[Body2COLMAP] Saved splat to {splat_path}")
+
+                # Update metadata with splat filename
+                metadata["splat_filename"] = splat_filename
+            else:
+                logger.warning("[Body2COLMAP] Splat scene provided but source path not found in b2c_data")
+
         metadata_path = output_path / "metadata.json"
         with open(metadata_path, 'w') as f:
             json.dump(metadata, f, indent=2)
@@ -232,5 +254,7 @@ class Body2COLMAP_SaveDataset:
         print(f"[Body2COLMAP] - {len(positions)} points")
         if reference_image is not None:
             print("[Body2COLMAP] - reference.png")
+        if splat_scene is not None and metadata.get("splat_filename"):
+            print("[Body2COLMAP] - splat.ply")
 
         return (str(output_path.absolute()),)

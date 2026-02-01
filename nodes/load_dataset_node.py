@@ -90,13 +90,14 @@ class Body2COLMAP_LoadDataset:
 
     CATEGORY = "Body2COLMAP"
     FUNCTION = "load"
-    RETURN_TYPES = ("B2C_COLMAP_METADATA", "IMAGE", "MASK", "IMAGE")
-    RETURN_NAMES = ("b2c_data", "images", "masks", "reference_image")
+    RETURN_TYPES = ("B2C_COLMAP_METADATA", "IMAGE", "MASK", "IMAGE", "SPLAT_SCENE")
+    RETURN_NAMES = ("b2c_data", "images", "masks", "reference_image", "splat_scene")
     OUTPUT_TOOLTIPS = (
         "Body2COLMAP dataset metadata (connect to ExportCOLMAP or SaveDataset)",
         "Batch of loaded images",
         "Batch of alpha masks",
-        "Reference image for preview (empty if not saved)"
+        "Reference image for preview (empty if not saved)",
+        "Trained Gaussian splat scene (None if not saved)"
     )
 
     @classmethod
@@ -128,6 +129,7 @@ class Body2COLMAP_LoadDataset:
             ├── frame_00002_.png
             ├── ...
             ├── reference.png (optional)
+            ├── splat.ply (optional)
             ├── metadata.json
             └── pointcloud.npz
 
@@ -141,6 +143,7 @@ class Body2COLMAP_LoadDataset:
             images: ComfyUI IMAGE tensor
             masks: ComfyUI MASK tensor
             reference_image: ComfyUI IMAGE tensor (or empty if not present)
+            splat_scene: SPLAT_SCENE object (or None if not present)
         """
         # Build full path
         if index == -1:
@@ -241,6 +244,20 @@ class Body2COLMAP_LoadDataset:
             reference_tensor = torch.zeros((1, 1, 1, 3), dtype=torch.float32)
             logger.info("[Body2COLMAP] No reference image found")
 
+        # Load splat if present in metadata
+        splat_scene = None
+        splat_filename = metadata.get("splat_filename")
+
+        if splat_filename:
+            splat_path = dataset_path / splat_filename
+
+            if splat_path.exists():
+                from body2colmap.splat_scene import SplatScene
+                splat_scene = SplatScene.from_ply(str(splat_path))
+                logger.info(f"[Body2COLMAP] Loaded splat ({len(splat_scene)} Gaussians, SH degree {splat_scene.sh_degree})")
+            else:
+                logger.warning(f"[Body2COLMAP] Splat marked in metadata but file not found: {splat_path}")
+
         # Package metadata
         b2c_data = {
             "cameras": cameras,
@@ -249,11 +266,19 @@ class Body2COLMAP_LoadDataset:
             "resolution": resolution,
         }
 
+        # Add splat path if loaded
+        if splat_scene is not None:
+            b2c_data["splat_path"] = str(splat_path)
+        else:
+            b2c_data["splat_path"] = None
+
         print(f"[Body2COLMAP] Loaded dataset from: {dataset_path}")
         print(f"[Body2COLMAP] - {len(image_names)} images")
         print(f"[Body2COLMAP] - {len(cameras)} cameras")
         print(f"[Body2COLMAP] - {len(positions)} points")
         if reference_path.exists():
             print("[Body2COLMAP] - reference.png")
+        if splat_scene is not None:
+            print(f"[Body2COLMAP] - splat.ply ({len(splat_scene)} Gaussians)")
 
-        return (b2c_data, images_tensor, masks_tensor, reference_tensor)
+        return (b2c_data, images_tensor, masks_tensor, reference_tensor, splat_scene)
