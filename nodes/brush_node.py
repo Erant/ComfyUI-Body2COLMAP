@@ -183,25 +183,36 @@ class Body2COLMAP_RunBrush:
             # Convert ComfyUI images to cv2 format
             cv2_images = comfy_to_cv2(images)
 
-            for i, (image_name, img) in enumerate(zip(b2c_data["image_names"], cv2_images)):
-                # Add alpha channel if masks provided
-                if masks is not None and i < len(masks):
-                    # Convert mask from ComfyUI format [H, W] float [0,1] to uint8 [0,255]
-                    # ComfyUI MASK is inverted (1.0 = background), so we invert back for alpha
-                    mask_np = masks[i].cpu().numpy()
-                    alpha = ((1.0 - mask_np) * 255).astype(np.uint8)
+            # Save images (with alpha channel if masks provided)
+            if masks is not None:
+                # Convert masks from ComfyUI format [B, H, W] float [0,1] to [B, H, W] uint8 [0,255]
+                # Note: ComfyUI MASK is inverted (1.0 = background), so we invert back for alpha channel
+                masks_np = masks.cpu().numpy()
+                alpha_channel = ((1.0 - masks_np) * 255).astype(np.uint8)
 
-                    # Add alpha channel to BGR image
+                # Save RGBA
+                for i, (img, filename) in enumerate(zip(cv2_images, b2c_data["image_names"])):
+                    alpha = alpha_channel[i]  # [H, W]
+
+                    # Check if image already has alpha channel (4 channels)
                     if img.shape[-1] == 4:
-                        # Replace existing alpha
-                        img[..., 3] = alpha
+                        # Replace existing alpha channel with our mask
+                        rgba = img.copy()
+                        rgba[..., 3] = alpha
                     elif img.shape[-1] == 3:
-                        # Add alpha channel
-                        img = np.dstack([img, alpha])  # [H, W, 4] - BGRA
+                        # Add alpha channel to BGR image
+                        rgba = np.dstack([img, alpha])  # [H, W, 4] - BGRA
+                    else:
+                        raise ValueError(f"Unexpected image channels: {img.shape[-1]} (expected 3 or 4)")
 
-                # Save image
-                img_path = images_dir / image_name
-                cv2.imwrite(str(img_path), img)
+                    img_path = images_dir / filename
+                    cv2.imwrite(str(img_path), rgba)
+            else:
+                # Save images without modifying alpha channel (RGB or RGBA as-is)
+                for img, filename in zip(cv2_images, b2c_data["image_names"]):
+                    img_path = images_dir / filename
+                    # Image can be BGR (3 channels) or BGRA (4 channels)
+                    cv2.imwrite(str(img_path), img)
 
             logger.info(f"[Body2COLMAP] Exported {len(cv2_images)} images to {images_dir}")
 

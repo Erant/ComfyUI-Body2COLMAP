@@ -229,7 +229,13 @@ class Body2COLMAP_SaveDataset:
                 # Update metadata with splat filename
                 metadata["splat_filename"] = splat_filename
             else:
-                logger.warning("[Body2COLMAP] Splat scene provided but source path not found in b2c_data")
+                # Log warning - this shouldn't happen in normal workflows
+                # (Brush node always sets splat_path when outputting splat_scene)
+                if source_splat:
+                    logger.warning(f"[Body2COLMAP] Splat path in b2c_data does not exist: {source_splat}")
+                else:
+                    logger.warning("[Body2COLMAP] Splat scene provided but no splat_path in b2c_data")
+                logger.warning("[Body2COLMAP] Splat will not be saved with dataset")
 
         metadata_path = output_path / "metadata.json"
         with open(metadata_path, 'w') as f:
