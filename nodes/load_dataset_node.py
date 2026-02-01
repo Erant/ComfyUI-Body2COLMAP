@@ -116,6 +116,22 @@ class Body2COLMAP_LoadDataset:
             }
         }
 
+    @classmethod
+    def IS_CHANGED(cls, directory, index=-1, index_control="fixed"):
+        """
+        Force re-execution when using increment/decrement mode.
+
+        ComfyUI caches node results when inputs haven't changed. Since JavaScript
+        updates the index widget after execution, we need to force re-execution
+        when in increment/decrement mode to prevent cached results.
+        """
+        import time
+        if index_control != "fixed":
+            # Return unique value to force re-execution
+            return float(time.time())
+        # Return stable value when fixed to allow caching
+        return f"{directory}_{index}"
+
     def load(self, directory, index=-1, index_control="fixed"):
         """
         Load Body2COLMAP dataset from disk.
