@@ -107,13 +107,16 @@ class Body2COLMAP_LoadDataset:
                     "default": -1,
                     "min": -1,
                     "max": 99999,
-                    "control_after_generate": True,
-                    "tooltip": "Dataset index (-1 = use directory as-is, >=0 = append _NNNNN). Auto-increments after each execution."
+                    "tooltip": "Dataset index (-1 = use directory as-is, >=0 = append _NNNNN)"
+                }),
+                "index_control": (["fixed", "increment", "decrement"], {
+                    "default": "fixed",
+                    "tooltip": "How to update index after execution (fixed=no change, increment=+1, decrement=-1)"
                 }),
             }
         }
 
-    def load(self, directory, index=-1):
+    def load(self, directory, index=-1, index_control="fixed"):
         """
         Load Body2COLMAP dataset from disk.
 
@@ -130,7 +133,8 @@ class Body2COLMAP_LoadDataset:
         Args:
             directory: Base directory name (in output folder)
             index: Dataset index (-1 = exact path, >=0 = append _NNNNN)
-                  Auto-increments after execution due to control_after_generate
+            index_control: Control for index behavior (fixed/increment/decrement)
+                          Note: This must be manually updated by user between runs
 
         Returns:
             b2c_data: B2C_COLMAP_METADATA
