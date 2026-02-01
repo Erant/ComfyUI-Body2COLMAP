@@ -85,8 +85,7 @@ class Body2COLMAP_LoadDataset:
     """
     Load Body2COLMAP dataset from disk.
 
-    Supports auto-incrementing/decrementing index for batch processing multiple datasets.
-    State is tracked per-node instance to support batch queue mode.
+    Supports auto-incrementing index for batch processing multiple datasets.
     """
 
     CATEGORY = "Body2COLMAP"
@@ -100,12 +99,6 @@ class Body2COLMAP_LoadDataset:
         "Reference image for preview (empty if not saved)"
     )
 
-    # Class-level state for tracking index across batch executions
-    # Key: node_id -> {"current": current_index, "last_seen": last_widget_value}
-    # Tracks both the state-managed index and the last widget value we received
-    # to detect manual user changes vs. batch mode stale values
-    _batch_state = {}
-
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -118,35 +111,13 @@ class Body2COLMAP_LoadDataset:
                     "default": -1,
                     "min": -1,
                     "max": 99999,
-                    "tooltip": "Dataset index (-1 = use directory as-is, >=0 = append _NNNNN). Manually changeable anytime."
+                    "control_after_generate": True,
+                    "tooltip": "Dataset index (-1 = use directory as-is, >=0 = append _NNNNN)"
                 }),
-                "index_control": (["fixed", "increment", "decrement"], {
-                    "default": "fixed",
-                    "tooltip": "Auto-increment behavior: fixed=use index as-is, increment=+1 per run, decrement=-1 per run. Supports batch mode and manual index changes."
-                }),
-            },
-            "hidden": {
-                "unique_id": "UNIQUE_ID"
             }
         }
 
-    @classmethod
-    def IS_CHANGED(cls, directory, index=-1, index_control="fixed"):
-        """
-        Force re-execution when using increment/decrement mode.
-
-        ComfyUI caches node results when inputs haven't changed. Since JavaScript
-        updates the index widget after execution, we need to force re-execution
-        when in increment/decrement mode to prevent cached results.
-        """
-        import time
-        if index_control != "fixed":
-            # Return unique value to force re-execution
-            return float(time.time())
-        # Return stable value when fixed to allow caching
-        return f"{directory}_{index}"
-
-    def load(self, directory, index=-1, index_control="fixed", unique_id=None):
+    def load(self, directory, index=-1):
         """
         Load Body2COLMAP dataset from disk.
 
@@ -163,13 +134,7 @@ class Body2COLMAP_LoadDataset:
         Args:
             directory: Base directory name (in output folder)
             index: Dataset index (-1 = exact path, >=0 = append _NNNNN)
-                   Can be manually changed anytime - will be detected and respected.
-            index_control: Auto-increment control (state tracked internally)
-                          - fixed: Always use index widget value, no state tracking
-                          - increment: Auto-increment index by +1 after each execution
-                          - decrement: Auto-decrement index by -1 after each execution
-                          Supports both batch queue mode and manual index changes.
-            unique_id: Node ID (hidden parameter, auto-provided by ComfyUI)
+                   Use control_after_generate dropdown for auto-increment behavior.
 
         Returns:
             b2c_data: B2C_COLMAP_METADATA
@@ -177,40 +142,13 @@ class Body2COLMAP_LoadDataset:
             masks: ComfyUI MASK tensor
             reference_image: ComfyUI IMAGE tensor (or empty if not present)
         """
-        # Determine actual index to use (handles batch mode and manual changes)
-        if index_control == "fixed":
-            # Use index as-is, no state tracking
-            # Clear any cached state to allow fresh start if switching back to increment/decrement
-            if unique_id in self._batch_state:
-                del self._batch_state[unique_id]
-            actual_index = index
-        else:
-            # Smart state tracking: detect manual widget changes vs batch mode stale values
-            if unique_id not in self._batch_state:
-                # First execution for this node - initialize state
-                self._batch_state[unique_id] = {"current": index, "last_seen": index}
-                actual_index = index
-            else:
-                state = self._batch_state[unique_id]
-                if index != state["last_seen"]:
-                    # Widget value changed since last execution
-                    if index == state["current"]:
-                        # Matches our expected next value (JS updated it) - continue with state
-                        state["last_seen"] = index
-                    else:
-                        # Doesn't match expected - user manually changed it, reset state
-                        state["current"] = index
-                        state["last_seen"] = index
-                # else: Widget unchanged (batch mode with stale values), use cached current
-                actual_index = state["current"]
-
         # Build full path
-        if actual_index == -1:
+        if index == -1:
             # Use directory as-is
             dataset_path = Path("output") / directory
         else:
             # Append _NNNNN to directory
-            numbered_dir = f"{directory}_{actual_index:05d}"
+            numbered_dir = f"{directory}_{index:05d}"
             dataset_path = Path("output") / numbered_dir
 
         if not dataset_path.exists():
@@ -318,17 +256,4 @@ class Body2COLMAP_LoadDataset:
         if reference_path.exists():
             print("[Body2COLMAP] - reference.png")
 
-        # Update batch state for next execution
-        next_index = actual_index
-        if index_control == "increment":
-            next_index = actual_index + 1
-            self._batch_state[unique_id]["current"] = next_index
-        elif index_control == "decrement":
-            next_index = actual_index - 1
-            self._batch_state[unique_id]["current"] = next_index
-
-        # Return UI update with next index for JavaScript to display
-        return {
-            "ui": {"index": [next_index]},
-            "result": (b2c_data, images_tensor, masks_tensor, reference_tensor)
-        }
+        return (b2c_data, images_tensor, masks_tensor, reference_tensor)
