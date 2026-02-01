@@ -164,13 +164,25 @@ class Body2COLMAP_SaveDataset:
             # Save RGBA
             for i, (img, filename) in enumerate(zip(cv2_images, image_names)):
                 alpha = alpha_channel[i]  # [H, W]
-                rgba = np.dstack([img, alpha])  # [H, W, 4] - BGRA
+
+                # Check if image already has alpha channel (4 channels)
+                if img.shape[-1] == 4:
+                    # Replace existing alpha channel with our mask
+                    rgba = img.copy()
+                    rgba[..., 3] = alpha
+                elif img.shape[-1] == 3:
+                    # Add alpha channel to BGR image
+                    rgba = np.dstack([img, alpha])  # [H, W, 4] - BGRA
+                else:
+                    raise ValueError(f"Unexpected image channels: {img.shape[-1]} (expected 3 or 4)")
+
                 img_path = output_path / filename
                 cv2.imwrite(str(img_path), rgba)
         else:
-            # Save RGB only
+            # Save images without modifying alpha channel (RGB or RGBA as-is)
             for img, filename in zip(cv2_images, image_names):
                 img_path = output_path / filename
+                # Image can be BGR (3 channels) or BGRA (4 channels)
                 cv2.imwrite(str(img_path), img)
 
         logger.info(f"[Body2COLMAP] Saved {len(cv2_images)} images")
