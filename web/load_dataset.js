@@ -1,6 +1,12 @@
 import { app } from "../../scripts/app.js";
 
-// Extension for Body2COLMAP_LoadDataset to handle index increment/decrement
+/**
+ * Extension for Body2COLMAP_LoadDataset node.
+ *
+ * Updates the index widget after node execution to reflect the next index value
+ * when using increment/decrement mode. This ensures the UI stays in sync with
+ * the Python-side state tracking for both single-run and batch queue modes.
+ */
 app.registerExtension({
     name: "Body2COLMAP.LoadDataset",
 
@@ -11,26 +17,20 @@ app.registerExtension({
             nodeType.prototype.onExecuted = function(message) {
                 onExecuted?.apply(this, arguments);
 
-                // Python side now handles the increment/decrement logic and returns
-                // the next index value in message.index[0]. We just update the widget.
+                // Python side handles increment/decrement logic and returns the next index.
+                // Update the widget to reflect the new value for single-run mode.
                 const indexWidget = this.widgets?.find(w => w.name === "index");
                 const controlWidget = this.widgets?.find(w => w.name === "index_control");
 
                 if (indexWidget && controlWidget && message.index) {
                     const control = controlWidget.value;
                     const newIndex = message.index[0];
-                    console.log("[Body2COLMAP LoadDataset] Received index from Python:", newIndex, "Control:", control);
 
                     if (control !== "fixed") {
-                        const oldValue = indexWidget.value;
                         indexWidget.value = newIndex;
-                        console.log("[Body2COLMAP LoadDataset] Updated widget from", oldValue, "to", newIndex);
                         // Trigger callback to notify ComfyUI of the change
                         if (indexWidget.callback) {
-                            console.log("[Body2COLMAP LoadDataset] Calling widget callback with:", newIndex);
                             indexWidget.callback(newIndex);
-                        } else {
-                            console.log("[Body2COLMAP LoadDataset] No callback found on widget!");
                         }
                     }
                 }

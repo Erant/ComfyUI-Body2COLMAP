@@ -82,7 +82,12 @@ def extract_alpha_to_comfy_mask(images_bgra: list) -> torch.Tensor:
 
 
 class Body2COLMAP_LoadDataset:
-    """Load Body2COLMAP dataset from disk."""
+    """
+    Load Body2COLMAP dataset from disk.
+
+    Supports auto-incrementing/decrementing index for batch processing multiple datasets.
+    State is tracked per-node instance to support batch queue mode.
+    """
 
     CATEGORY = "Body2COLMAP"
     FUNCTION = "load"
@@ -156,8 +161,11 @@ class Body2COLMAP_LoadDataset:
         Args:
             directory: Base directory name (in output folder)
             index: Dataset index (-1 = exact path, >=0 = append _NNNNN)
-            index_control: Control for index behavior (fixed/increment/decrement)
-                          Auto-updates index widget after execution via JavaScript
+            index_control: Control for index behavior after execution
+                          - fixed: Keep index unchanged
+                          - increment: Load next dataset (+1) on subsequent runs
+                          - decrement: Load previous dataset (-1) on subsequent runs
+                          Supports both single-run and batch queue modes.
             unique_id: Node ID (hidden parameter, auto-provided by ComfyUI)
 
         Returns:
@@ -166,8 +174,6 @@ class Body2COLMAP_LoadDataset:
             masks: ComfyUI MASK tensor
             reference_image: ComfyUI IMAGE tensor (or empty if not present)
         """
-        print(f"[Body2COLMAP LoadDataset] RECEIVED: directory={directory}, index={index}, index_control={index_control}, node_id={unique_id}")
-
         # Determine actual index to use (handles batch mode)
         if index_control == "fixed":
             # Use index as-is, no state tracking
@@ -178,7 +184,6 @@ class Body2COLMAP_LoadDataset:
                 # First execution for this node - use the widget value
                 self._batch_state[unique_id] = index
             actual_index = self._batch_state[unique_id]
-            print(f"[Body2COLMAP LoadDataset] Using batch state index for node {unique_id}: {actual_index}")
 
         # Build full path
         if actual_index == -1:
@@ -299,15 +304,12 @@ class Body2COLMAP_LoadDataset:
         if index_control == "increment":
             next_index = actual_index + 1
             self._batch_state[unique_id] = next_index
-            print(f"[Body2COLMAP LoadDataset] Updated batch state for node {unique_id}: next index will be {next_index}")
         elif index_control == "decrement":
             next_index = actual_index - 1
             self._batch_state[unique_id] = next_index
-            print(f"[Body2COLMAP LoadDataset] Updated batch state for node {unique_id}: next index will be {next_index}")
 
         # Return with UI updates to trigger JavaScript onExecuted hook
         # Return next_index so the JavaScript can update the widget for single-run mode
-        print(f"[Body2COLMAP LoadDataset] RETURNING: next_index={next_index} in UI update")
         return {
             "ui": {"index": [next_index]},
             "result": (b2c_data, images_tensor, masks_tensor, reference_tensor)
