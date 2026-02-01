@@ -20,8 +20,16 @@ app.registerExtension({
 
                     if (control === "increment") {
                         indexWidget.value = indexWidget.value + 1;
+                        // Trigger callback to notify ComfyUI of the change
+                        if (indexWidget.callback) {
+                            indexWidget.callback(indexWidget.value);
+                        }
                     } else if (control === "decrement") {
                         indexWidget.value = indexWidget.value - 1;
+                        // Trigger callback to notify ComfyUI of the change
+                        if (indexWidget.callback) {
+                            indexWidget.callback(indexWidget.value);
+                        }
                     }
                     // "fixed" does nothing
                 }
