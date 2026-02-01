@@ -26,16 +26,14 @@ def deserialize_camera(camera_data: dict, resolution: tuple) -> Camera:
     intrinsics = camera_data["intrinsics"]
     extrinsics = camera_data["extrinsics"]
 
-    # Reconstruct Camera with focal length and image size
-    # Then set the rotation and translation
+    # Reconstruct Camera with all parameters
     camera = Camera(
         focal_length=(intrinsics["fx"], intrinsics["fy"]),
-        image_size=resolution
+        image_size=resolution,
+        principal_point=(intrinsics["cx"], intrinsics["cy"]),
+        position=np.array(extrinsics["position"], dtype=np.float32),
+        rotation=np.array(extrinsics["rotation"], dtype=np.float32)
     )
-
-    # Set extrinsics
-    camera.R = np.array(extrinsics["rotation"], dtype=np.float32)
-    camera.t = np.array(extrinsics["translation"], dtype=np.float32).reshape(3, 1)
 
     return camera
 

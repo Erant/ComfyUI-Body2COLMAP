@@ -67,8 +67,8 @@ def serialize_camera(camera) -> dict:
             "cy": float(camera.cy),
         },
         "extrinsics": {
-            "rotation": camera.R.tolist(),  # 3x3 rotation matrix
-            "translation": camera.t.tolist(),  # 3x1 translation vector
+            "rotation": camera.rotation.tolist(),  # 3x3 rotation matrix (camera-to-world)
+            "position": camera.position.tolist(),  # 3D position vector
         }
     }
 
