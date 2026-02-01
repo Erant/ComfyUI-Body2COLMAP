@@ -311,4 +311,8 @@ class Body2COLMAP_LoadDataset:
         elif index_control == "decrement":
             self._batch_state[unique_id] = actual_index - 1
 
-        return (b2c_data, images_tensor, masks_tensor, reference_tensor)
+        # Return UI update to show the actual index used (for display only, doesn't affect state)
+        return {
+            "ui": {"text": [f"Loaded index: {actual_index}"]},
+            "result": (b2c_data, images_tensor, masks_tensor, reference_tensor)
+        }
