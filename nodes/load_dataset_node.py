@@ -306,13 +306,16 @@ class Body2COLMAP_LoadDataset:
             print("[Body2COLMAP] - reference.png")
 
         # Update batch state for next execution
+        next_index = actual_index
         if index_control == "increment":
-            self._batch_state[unique_id] = actual_index + 1
+            next_index = actual_index + 1
+            self._batch_state[unique_id] = next_index
         elif index_control == "decrement":
-            self._batch_state[unique_id] = actual_index - 1
+            next_index = actual_index - 1
+            self._batch_state[unique_id] = next_index
 
-        # Return UI update to show the actual index used (for display only, doesn't affect state)
+        # Return UI update with next index for JavaScript to display
         return {
-            "ui": {"text": [f"Loaded index: {actual_index}"]},
+            "ui": {"index": [next_index]},
             "result": (b2c_data, images_tensor, masks_tensor, reference_tensor)
         }
