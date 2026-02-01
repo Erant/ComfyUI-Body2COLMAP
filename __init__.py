@@ -55,6 +55,8 @@ from .nodes.path_nodes import (
 from .nodes.render_node import Body2COLMAP_Render
 from .nodes.splat_loader_node import Body2COLMAP_LoadSplat
 from .nodes.splat_render_node import Body2COLMAP_RenderSplat
+from .nodes.save_dataset_node import Body2COLMAP_SaveDataset
+from .nodes.load_dataset_node import Body2COLMAP_LoadDataset
 from .nodes.export_node import Body2COLMAP_ExportCOLMAP
 
 # Node class mappings for ComfyUI
@@ -65,6 +67,8 @@ NODE_CLASS_MAPPINGS = {
     "Body2COLMAP_Render": Body2COLMAP_Render,
     "Body2COLMAP_LoadSplat": Body2COLMAP_LoadSplat,
     "Body2COLMAP_RenderSplat": Body2COLMAP_RenderSplat,
+    "Body2COLMAP_SaveDataset": Body2COLMAP_SaveDataset,
+    "Body2COLMAP_LoadDataset": Body2COLMAP_LoadDataset,
     "Body2COLMAP_ExportCOLMAP": Body2COLMAP_ExportCOLMAP,
 }
 
@@ -76,6 +80,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Body2COLMAP_Render": "🎬 Render Multi-View (Mesh)",
     "Body2COLMAP_LoadSplat": "✨ Load Gaussian Splat",
     "Body2COLMAP_RenderSplat": "🎬 Render Multi-View (Splat)",
+    "Body2COLMAP_SaveDataset": "💾 Save Dataset",
+    "Body2COLMAP_LoadDataset": "📂 Load Dataset",
     "Body2COLMAP_ExportCOLMAP": "📦 Export COLMAP",
 }
 

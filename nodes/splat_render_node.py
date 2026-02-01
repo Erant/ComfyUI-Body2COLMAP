@@ -19,12 +19,12 @@ class Body2COLMAP_RenderSplat:
 
     CATEGORY = "Body2COLMAP"
     FUNCTION = "render"
-    RETURN_TYPES = ("IMAGE", "MASK", "B2C_RENDER_DATA")
-    RETURN_NAMES = ("images", "masks", "render_data")
+    RETURN_TYPES = ("IMAGE", "MASK", "B2C_COLMAP_METADATA")
+    RETURN_NAMES = ("images", "masks", "b2c_data")
     OUTPUT_TOOLTIPS = (
         "Batch of rendered RGB images (connect to SaveImage or PreviewImage)",
         "Batch of alpha masks for each image",
-        "Render metadata for COLMAP export (connect to ExportCOLMAP)"
+        "Body2COLMAP dataset metadata (connect to ExportCOLMAP or SaveDataset)"
     )
 
     @classmethod
@@ -93,13 +93,23 @@ class Body2COLMAP_RenderSplat:
                     "default": "cuda",
                     "tooltip": "Device for rendering (cuda strongly recommended for speed)"
                 }),
+
+                # Point cloud sampling for COLMAP export
+                "pointcloud_samples": ("INT", {
+                    "default": 10000,
+                    "min": 1000,
+                    "max": 500000,
+                    "step": 1000,
+                    "tooltip": "Number of points to sample from Gaussian centers for COLMAP initialization"
+                }),
             }
         }
 
     def render(self, splat_scene, path_config, width, height,
                focal_length_mm=0.0, fill_ratio=0.8,
                bg_color_r=1.0, bg_color_g=1.0, bg_color_b=1.0,
-               device="cuda"):
+               device="cuda",
+               pointcloud_samples=10000):
         """
         Render all camera positions and return batch of images + masks.
 
@@ -116,7 +126,7 @@ class Body2COLMAP_RenderSplat:
         Returns:
             images: Tensor of shape [N, H, W, 3] in [0,1] range (ComfyUI IMAGE format)
             masks: Tensor of shape [N, H, W] in [0,1] range (alpha channel)
-            render_data: Dict containing cameras and scene for COLMAP export
+            b2c_data: B2C_COLMAP_METADATA with cameras, point cloud, and image names
         """
         # Import SplatRenderer
         try:
@@ -251,12 +261,21 @@ class Body2COLMAP_RenderSplat:
         images_tensor, masks_tensor = rendered_to_comfy(rendered_images)
         logger.info(f"[Body2COLMAP] Conversion complete ({time.time() - t0:.2f}s)")
 
-        # Package render data for COLMAP export
-        render_data = {
+        # Sample point cloud from splat scene (do this while we still have the scene!)
+        logger.info(f"[Body2COLMAP] Sampling {pointcloud_samples} points from splat scene...")
+        t0 = time.time()
+        points, colors = splat_scene.get_point_cloud(n_samples=pointcloud_samples)
+        logger.info(f"[Body2COLMAP] Point cloud sampled ({time.time() - t0:.2f}s)")
+
+        # Generate standardized filenames (1-based indexing with trailing underscore)
+        image_names = [f"frame_{i+1:05d}_.png" for i in range(len(cameras))]
+
+        # Package metadata for serialization (no scene object - not serializable)
+        b2c_data = {
             "cameras": cameras,
-            "scene": splat_scene,  # SplatScene instead of Scene
+            "image_names": image_names,
+            "points_3d": (points, colors),
             "resolution": (width, height),
-            "focal_length": focal_length,
         }
 
-        return (images_tensor, masks_tensor, render_data)
+        return (images_tensor, masks_tensor, b2c_data)

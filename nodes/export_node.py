@@ -58,36 +58,24 @@ class Body2COLMAP_ExportCOLMAP:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "render_data": ("B2C_RENDER_DATA",),
+                "b2c_data": ("B2C_COLMAP_METADATA",),
                 "output_directory": ("STRING", {
                     "default": "output/colmap",
                     "tooltip": "Base directory name (creates numbered dirs like Save Image: output/colmap_00001, etc.)"
-                }),
-                "image_name": ("STRING", {
-                    "default": "frame",
-                    "tooltip": "Base name for images (follows ComfyUI convention: <name>_%05d_.png)"
                 }),
             },
             "optional": {
                 "images": ("IMAGE",),
                 "masks": ("MASK",),
-                "pointcloud_samples": ("INT", {
-                    "default": 10000,
-                    "min": 1000,
-                    "max": 500000,
-                    "step": 1000,
-                    "tooltip": "Number of points to sample from mesh surface"
-                }),
             }
         }
 
-    def export(self, render_data, output_directory, image_name,
-               images=None, masks=None, pointcloud_samples=10000):
+    def export(self, b2c_data, output_directory, images=None, masks=None):
         """
         Export COLMAP format files.
 
         Uses sequential directory numbering like ComfyUI's Save Image node.
-        For output_directory='output/splat', creates output/splat_00001, output/splat_00002, etc.
+        For output_directory='output/colmap', creates output/colmap_00001, output/colmap_00002, etc.
 
         Creates (flat structure matching body2colmap):
             output_directory_NNNNN/
@@ -99,23 +87,18 @@ class Body2COLMAP_ExportCOLMAP:
             └── points3D.txt  (initial point cloud)
 
         Note:
-            Works with both mesh Scene and SplatScene render data.
-            Point cloud is sampled from mesh vertices or Gaussian centers.
+            Point cloud must be pre-sampled in render nodes and included in b2c_data.
         """
-        # Extract data
-        cameras = render_data["cameras"]
-        scene = render_data["scene"]  # Can be Scene or SplatScene
-        width, height = render_data["resolution"]
-        focal_length = render_data["focal_length"]
+        # Extract data from b2c_data
+        cameras = b2c_data["cameras"]
+        image_names = b2c_data["image_names"]
+        points_3d = b2c_data["points_3d"]
+        width, height = b2c_data["resolution"]
 
         # Create output directory with sequential numbering (like Save Image node)
         base_path = Path(output_directory)
         output_path = get_next_numbered_directory(base_path)
         output_path.mkdir(parents=True, exist_ok=True)
-
-        # Generate image filenames using ComfyUI convention
-        # Format: <image_name>_%05d_.png with 1-based indexing
-        image_names = [f"{image_name}_{i+1:05d}_.png" for i in range(len(cameras))]
 
         # Save images if provided
         if images is not None:
@@ -144,12 +127,11 @@ class Body2COLMAP_ExportCOLMAP:
                     img_path = output_path / filename
                     cv2.imwrite(str(img_path), img)
 
-        # Create COLMAP exporter using classmethod
-        exporter = ColmapExporter.from_scene_and_cameras(
-            scene=scene,
+        # Create COLMAP exporter with pre-sampled point cloud
+        exporter = ColmapExporter(
             cameras=cameras,
             image_names=image_names,
-            n_pointcloud_samples=pointcloud_samples
+            points_3d=points_3d
         )
 
         # Export COLMAP files to same directory as images
@@ -158,7 +140,7 @@ class Body2COLMAP_ExportCOLMAP:
         print(f"[Body2COLMAP] Exported COLMAP files to: {output_path}")
         print(f"[Body2COLMAP] - cameras.txt: {len(cameras)} cameras")
         print(f"[Body2COLMAP] - images.txt: {len(cameras)} images")
-        print(f"[Body2COLMAP] - points3D.txt: {pointcloud_samples} points")
+        print(f"[Body2COLMAP] - points3D.txt: {len(points_3d[0])} points")
 
         if images is not None:
             format_str = "RGBA" if masks is not None else "RGB"
