@@ -183,6 +183,9 @@ class Body2COLMAP_LoadDataset:
             if unique_id not in self._batch_state:
                 # First execution for this node - use the widget value
                 self._batch_state[unique_id] = index
+            elif self._batch_state[unique_id] != index:
+                # Widget value changed - user manually updated it, use new value
+                self._batch_state[unique_id] = index
             actual_index = self._batch_state[unique_id]
 
         # Build full path
