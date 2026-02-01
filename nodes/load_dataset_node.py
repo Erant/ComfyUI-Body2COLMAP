@@ -158,6 +158,8 @@ class Body2COLMAP_LoadDataset:
             masks: ComfyUI MASK tensor
             reference_image: ComfyUI IMAGE tensor (or empty if not present)
         """
+        print(f"[Body2COLMAP LoadDataset] RECEIVED: directory={directory}, index={index}, index_control={index_control}")
+
         # Build full path
         if index == -1:
             # Use directory as-is
@@ -273,6 +275,7 @@ class Body2COLMAP_LoadDataset:
             print("[Body2COLMAP] - reference.png")
 
         # Return with UI updates to trigger JavaScript onExecuted hook
+        print(f"[Body2COLMAP LoadDataset] RETURNING: index={index} in UI update")
         return {
             "ui": {"index": [index]},
             "result": (b2c_data, images_tensor, masks_tensor, reference_tensor)

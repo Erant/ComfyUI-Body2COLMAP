@@ -17,18 +17,29 @@ app.registerExtension({
 
                 if (indexWidget && controlWidget) {
                     const control = controlWidget.value;
+                    console.log("[Body2COLMAP LoadDataset] Current index:", indexWidget.value, "Control:", control);
 
                     if (control === "increment") {
+                        const oldValue = indexWidget.value;
                         indexWidget.value = indexWidget.value + 1;
+                        console.log("[Body2COLMAP LoadDataset] Incremented from", oldValue, "to", indexWidget.value);
                         // Trigger callback to notify ComfyUI of the change
                         if (indexWidget.callback) {
+                            console.log("[Body2COLMAP LoadDataset] Calling widget callback with:", indexWidget.value);
                             indexWidget.callback(indexWidget.value);
+                        } else {
+                            console.log("[Body2COLMAP LoadDataset] No callback found on widget!");
                         }
                     } else if (control === "decrement") {
+                        const oldValue = indexWidget.value;
                         indexWidget.value = indexWidget.value - 1;
+                        console.log("[Body2COLMAP LoadDataset] Decremented from", oldValue, "to", indexWidget.value);
                         // Trigger callback to notify ComfyUI of the change
                         if (indexWidget.callback) {
+                            console.log("[Body2COLMAP LoadDataset] Calling widget callback with:", indexWidget.value);
                             indexWidget.callback(indexWidget.value);
+                        } else {
+                            console.log("[Body2COLMAP LoadDataset] No callback found on widget!");
                         }
                     }
                     // "fixed" does nothing
