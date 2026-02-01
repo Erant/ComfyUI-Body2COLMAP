@@ -11,38 +11,28 @@ app.registerExtension({
             nodeType.prototype.onExecuted = function(message) {
                 onExecuted?.apply(this, arguments);
 
-                // Find the index and index_control widgets
+                // Python side now handles the increment/decrement logic and returns
+                // the next index value in message.index[0]. We just update the widget.
                 const indexWidget = this.widgets?.find(w => w.name === "index");
                 const controlWidget = this.widgets?.find(w => w.name === "index_control");
 
-                if (indexWidget && controlWidget) {
+                if (indexWidget && controlWidget && message.index) {
                     const control = controlWidget.value;
-                    console.log("[Body2COLMAP LoadDataset] Current index:", indexWidget.value, "Control:", control);
+                    const newIndex = message.index[0];
+                    console.log("[Body2COLMAP LoadDataset] Received index from Python:", newIndex, "Control:", control);
 
-                    if (control === "increment") {
+                    if (control !== "fixed") {
                         const oldValue = indexWidget.value;
-                        indexWidget.value = indexWidget.value + 1;
-                        console.log("[Body2COLMAP LoadDataset] Incremented from", oldValue, "to", indexWidget.value);
+                        indexWidget.value = newIndex;
+                        console.log("[Body2COLMAP LoadDataset] Updated widget from", oldValue, "to", newIndex);
                         // Trigger callback to notify ComfyUI of the change
                         if (indexWidget.callback) {
-                            console.log("[Body2COLMAP LoadDataset] Calling widget callback with:", indexWidget.value);
-                            indexWidget.callback(indexWidget.value);
-                        } else {
-                            console.log("[Body2COLMAP LoadDataset] No callback found on widget!");
-                        }
-                    } else if (control === "decrement") {
-                        const oldValue = indexWidget.value;
-                        indexWidget.value = indexWidget.value - 1;
-                        console.log("[Body2COLMAP LoadDataset] Decremented from", oldValue, "to", indexWidget.value);
-                        // Trigger callback to notify ComfyUI of the change
-                        if (indexWidget.callback) {
-                            console.log("[Body2COLMAP LoadDataset] Calling widget callback with:", indexWidget.value);
-                            indexWidget.callback(indexWidget.value);
+                            console.log("[Body2COLMAP LoadDataset] Calling widget callback with:", newIndex);
+                            indexWidget.callback(newIndex);
                         } else {
                             console.log("[Body2COLMAP LoadDataset] No callback found on widget!");
                         }
                     }
-                    // "fixed" does nothing
                 }
             };
         }
