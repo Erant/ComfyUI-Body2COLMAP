@@ -13,6 +13,9 @@ For more information, see:
 - https://github.com/Erant/ComfyUI-Body2COLMAP
 """
 
+# Enable JavaScript extensions for dynamic inputs
+WEB_DIRECTORY = "web"
+
 # Configure headless rendering for Linux BEFORE importing body2colmap/pyrender.
 # This must happen before any pyrender imports as it checks PYOPENGL_PLATFORM at import time.
 import os
@@ -53,6 +56,11 @@ from .nodes.path_nodes import (
     Body2COLMAP_HelicalPath,
 )
 from .nodes.render_node import Body2COLMAP_Render
+from .nodes.splat_loader_node import Body2COLMAP_LoadSplat
+from .nodes.splat_render_node import Body2COLMAP_RenderSplat
+from .nodes.save_dataset_node import Body2COLMAP_SaveDataset
+from .nodes.load_dataset_node import Body2COLMAP_LoadDataset
+from .nodes.merge_dataset_node import Body2COLMAP_MergeDatasets
 from .nodes.export_node import Body2COLMAP_ExportCOLMAP
 
 # Node class mappings for ComfyUI
@@ -61,6 +69,11 @@ NODE_CLASS_MAPPINGS = {
     "Body2COLMAP_SinusoidalPath": Body2COLMAP_SinusoidalPath,
     "Body2COLMAP_HelicalPath": Body2COLMAP_HelicalPath,
     "Body2COLMAP_Render": Body2COLMAP_Render,
+    "Body2COLMAP_LoadSplat": Body2COLMAP_LoadSplat,
+    "Body2COLMAP_RenderSplat": Body2COLMAP_RenderSplat,
+    "Body2COLMAP_SaveDataset": Body2COLMAP_SaveDataset,
+    "Body2COLMAP_LoadDataset": Body2COLMAP_LoadDataset,
+    "Body2COLMAP_MergeDatasets": Body2COLMAP_MergeDatasets,
     "Body2COLMAP_ExportCOLMAP": Body2COLMAP_ExportCOLMAP,
 }
 
@@ -69,7 +82,12 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Body2COLMAP_CircularPath": "🌐 Circular Path",
     "Body2COLMAP_SinusoidalPath": "🌊 Sinusoidal Path",
     "Body2COLMAP_HelicalPath": "🌀 Helical Path",
-    "Body2COLMAP_Render": "🎬 Render Multi-View",
+    "Body2COLMAP_Render": "🎬 Render Multi-View (Mesh)",
+    "Body2COLMAP_LoadSplat": "✨ Load Gaussian Splat",
+    "Body2COLMAP_RenderSplat": "🎬 Render Multi-View (Splat)",
+    "Body2COLMAP_SaveDataset": "💾 Save Dataset",
+    "Body2COLMAP_LoadDataset": "📂 Load Dataset",
+    "Body2COLMAP_MergeDatasets": "🔗 Merge Datasets",
     "Body2COLMAP_ExportCOLMAP": "📦 Export COLMAP",
 }
 

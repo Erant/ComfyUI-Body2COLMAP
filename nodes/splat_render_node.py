@@ -1,14 +1,12 @@
-"""Render node for Body2COLMAP - generates multi-view images."""
+"""Splat render node - renders Gaussian Splats using gsplat."""
 
 import logging
 import time
 
 import comfy.utils
-from body2colmap.renderer import Renderer
 from body2colmap.path import OrbitPath
 from body2colmap.camera import Camera
 from body2colmap.utils import compute_default_focal_length
-from ..core.sam3d_adapter import sam3d_output_to_scene
 from ..core.comfy_utils import rendered_to_comfy
 from ..core.path_utils import compute_smart_orbit_radius
 from ..core.camera_utils import focal_length_mm_to_pixels
@@ -16,8 +14,8 @@ from ..core.camera_utils import focal_length_mm_to_pixels
 logger = logging.getLogger(__name__)
 
 
-class Body2COLMAP_Render:
-    """Render multi-view images of mesh from camera path configuration."""
+class Body2COLMAP_RenderSplat:
+    """Render Gaussian Splats from camera path configuration."""
 
     CATEGORY = "Body2COLMAP"
     FUNCTION = "render"
@@ -33,7 +31,7 @@ class Body2COLMAP_Render:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "mesh_data": ("SAM3D_OUTPUT",),
+                "splat_scene": ("SPLAT_SCENE",),
                 "path_config": ("B2C_PATH_CONFIG",),
                 "width": ("INT", {
                     "default": 720,
@@ -48,16 +46,6 @@ class Body2COLMAP_Render:
                     "max": 4096,
                     "step": 1,
                     "tooltip": "Image height in pixels"
-                }),
-                "render_mode": ([
-                    "mesh",
-                    "depth",
-                    "skeleton",
-                    "mesh+skeleton",
-                    "depth+skeleton"
-                ], {
-                    "default": "depth+skeleton",
-                    "tooltip": "What to render: mesh surface, depth map, skeleton, or composites"
                 }),
             },
             "optional": {
@@ -74,31 +62,10 @@ class Body2COLMAP_Render:
                     "min": 0.1,
                     "max": 1.0,
                     "step": 0.05,
-                    "tooltip": "How much of viewport should contain mesh (for auto-radius)"
+                    "tooltip": "How much of viewport should contain scene (for auto-radius)"
                 }),
 
-                # Mesh rendering options
-                "mesh_color_r": ("FLOAT", {
-                    "default": 0.65,
-                    "min": 0.0,
-                    "max": 1.0,
-                    "step": 0.01,
-                    "tooltip": "Mesh color red channel"
-                }),
-                "mesh_color_g": ("FLOAT", {
-                    "default": 0.74,
-                    "min": 0.0,
-                    "max": 1.0,
-                    "step": 0.01,
-                    "tooltip": "Mesh color green channel"
-                }),
-                "mesh_color_b": ("FLOAT", {
-                    "default": 0.86,
-                    "min": 0.0,
-                    "max": 1.0,
-                    "step": 0.01,
-                    "tooltip": "Mesh color blue channel"
-                }),
+                # Background color (no mesh color for splats - they have baked appearance)
                 "bg_color_r": ("FLOAT", {
                     "default": 1.0,
                     "min": 0.0,
@@ -121,34 +88,11 @@ class Body2COLMAP_Render:
                     "tooltip": "Background color blue channel"
                 }),
 
-                # Skeleton rendering options (for skeleton modes)
-                "skeleton_format": ([
-                    "openpose_body25_hands",
-                    "mhr70"
-                ], {"default": "openpose_body25_hands"}),
-                "joint_radius": ("FLOAT", {
-                    "default": 0.006,
-                    "min": 0.001,
-                    "max": 0.1,
-                    "step": 0.001,
-                    "tooltip": "Sphere radius for skeleton joints (meters)"
+                # Device selection for torch/gsplat
+                "device": (["cuda", "cpu"], {
+                    "default": "cuda",
+                    "tooltip": "Device for rendering (cuda strongly recommended for speed)"
                 }),
-                "bone_radius": ("FLOAT", {
-                    "default": 0.003,
-                    "min": 0.001,
-                    "max": 0.05,
-                    "step": 0.001,
-                    "tooltip": "Cylinder radius for skeleton bones (meters)"
-                }),
-
-                # Depth rendering options
-                "depth_colormap": ([
-                    "grayscale",
-                    "viridis",
-                    "plasma",
-                    "inferno",
-                    "magma"
-                ], {"default": "grayscale"}),
 
                 # Point cloud sampling for COLMAP export
                 "pointcloud_samples": ("INT", {
@@ -156,36 +100,50 @@ class Body2COLMAP_Render:
                     "min": 1000,
                     "max": 500000,
                     "step": 1000,
-                    "tooltip": "Number of points to sample from mesh for COLMAP initialization"
+                    "tooltip": "Number of points to sample from Gaussian centers for COLMAP initialization"
                 }),
             }
         }
 
-    def render(self, mesh_data, path_config, width, height, render_mode,
+    def render(self, splat_scene, path_config, width, height,
                focal_length_mm=0.0, fill_ratio=0.8,
-               mesh_color_r=0.65, mesh_color_g=0.74, mesh_color_b=0.86,
                bg_color_r=1.0, bg_color_g=1.0, bg_color_b=1.0,
-               skeleton_format="openpose_body25_hands",
-               joint_radius=0.006, bone_radius=0.003,
-               depth_colormap="grayscale",
+               device="cuda",
                pointcloud_samples=10000):
         """
         Render all camera positions and return batch of images + masks.
+
+        Args:
+            splat_scene: SplatScene object from LoadSplat node
+            path_config: B2C_PATH_CONFIG from path generator node
+            width: Image width in pixels
+            height: Image height in pixels
+            focal_length_mm: Focal length in mm (0=auto)
+            fill_ratio: Viewport fill ratio for auto-radius
+            bg_color_r/g/b: Background color RGB components
+            device: torch device ("cuda" or "cpu")
 
         Returns:
             images: Tensor of shape [N, H, W, 3] in [0,1] range (ComfyUI IMAGE format)
             masks: Tensor of shape [N, H, W] in [0,1] range (alpha channel)
             b2c_data: B2C_COLMAP_METADATA with cameras, point cloud, and image names
         """
-        # Convert SAM3D output to Scene (with skeleton for skeleton modes)
-        include_skeleton = "skeleton" in render_mode
-        logger.info("[Body2COLMAP] Converting SAM3D output to scene...")
-        t0 = time.time()
-        scene = sam3d_output_to_scene(mesh_data, include_skeleton=include_skeleton)
-        logger.info(f"[Body2COLMAP] Scene conversion complete ({time.time() - t0:.2f}s)")
+        # Import SplatRenderer
+        try:
+            from body2colmap.splat_renderer import SplatRenderer
+        except ImportError as e:
+            raise ImportError(
+                "Failed to import body2colmap.splat_renderer. "
+                "Make sure body2colmap is installed with splat support: "
+                "pip install body2colmap[splat]"
+            ) from e
+
+        logger.info(
+            f"[Body2COLMAP] Rendering splat scene: "
+            f"{len(splat_scene)} Gaussians, SH degree {splat_scene.sh_degree}"
+        )
 
         # Determine focal length in pixels
-        # Convert from mm (35mm full-frame equivalent) to pixels
         if focal_length_mm <= 0:
             # Auto-compute default (~43mm equivalent, ~47° FOV)
             focal_length = compute_default_focal_length(width)
@@ -193,14 +151,14 @@ class Body2COLMAP_Render:
             focal_length = focal_length_mm_to_pixels(focal_length_mm, width)
 
         # Get orbit center and auto-compute radius if needed
-        orbit_center = scene.get_bbox_center()
+        orbit_center = splat_scene.get_bbox_center()
         pattern = path_config["pattern"]
         params = path_config["params"].copy()  # Don't modify original
 
         # Auto-compute radius if not specified in path config
         if params.get("radius") is None:
             params["radius"] = compute_smart_orbit_radius(
-                scene=scene,
+                scene=splat_scene,
                 render_size=(width, height),
                 focal_length=focal_length,
                 fill_ratio=fill_ratio
@@ -213,7 +171,10 @@ class Body2COLMAP_Render:
         )
 
         # Create OrbitPath and generate cameras based on pattern
-        logger.info(f"[Body2COLMAP] Creating camera path: {pattern} with radius={params['radius']:.3f}")
+        logger.info(
+            f"[Body2COLMAP] Creating camera path: {pattern} "
+            f"with radius={params['radius']:.3f}"
+        )
         t0 = time.time()
         path_gen = OrbitPath(target=orbit_center, radius=params["radius"])
 
@@ -244,95 +205,55 @@ class Body2COLMAP_Render:
             )
         else:
             raise ValueError(f"Unknown path pattern: {pattern}")
-        logger.info(f"[Body2COLMAP] Camera path created: {len(cameras)} cameras ({time.time() - t0:.2f}s)")
 
-        # Prepare render colors
-        mesh_color = (mesh_color_r, mesh_color_g, mesh_color_b)
+        logger.info(
+            f"[Body2COLMAP] Camera path created: {len(cameras)} cameras "
+            f"({time.time() - t0:.2f}s)"
+        )
+
+        # Prepare background color
         bg_color = (bg_color_r, bg_color_g, bg_color_b)
 
-        # Map "grayscale" to None (no colormap = grayscale depth)
-        depth_cmap = None if depth_colormap == "grayscale" else depth_colormap
-
-        # Create renderer - requires scene and render_size tuple
-        logger.info(f"[Body2COLMAP] Creating renderer (size={width}x{height})...")
+        # Create SplatRenderer
+        logger.info(
+            f"[Body2COLMAP] Creating SplatRenderer "
+            f"(size={width}x{height}, device={device})..."
+        )
         t0 = time.time()
-        renderer = Renderer(scene=scene, render_size=(width, height))
+        renderer = SplatRenderer(
+            scene=splat_scene,
+            render_size=(width, height),
+            device=device
+        )
         logger.info(f"[Body2COLMAP] Renderer created ({time.time() - t0:.2f}s)")
 
         # Render all frames
         rendered_images = []
         n_frames = len(cameras)
-        logger.info(f"[Body2COLMAP] Starting render loop: {n_frames} frames, mode={render_mode}")
+        logger.info(f"[Body2COLMAP] Starting render loop: {n_frames} frames")
         pbar = comfy.utils.ProgressBar(n_frames)
 
         for i, camera in enumerate(cameras):
             frame_start = time.time()
             if i == 0:
-                logger.info(f"[Body2COLMAP] Rendering first frame...")
-            # Determine render mode
-            if render_mode == "mesh":
-                if i == 0:
-                    logger.info("[Body2COLMAP] Calling render_mesh...")
-                img = renderer.render_mesh(
-                    camera=camera,
-                    mesh_color=mesh_color,
-                    bg_color=bg_color,
-                )
-            elif render_mode == "depth":
-                if i == 0:
-                    logger.info("[Body2COLMAP] Calling render_depth...")
-                img = renderer.render_depth(
-                    camera=camera,
-                    colormap=depth_cmap,
-                )
-            elif render_mode == "skeleton":
-                if i == 0:
-                    logger.info("[Body2COLMAP] Calling render_skeleton...")
-                img = renderer.render_skeleton(
-                    camera=camera,
-                    target_format=skeleton_format,
-                    joint_radius=joint_radius,
-                    bone_radius=bone_radius,
-                )
-            elif render_mode == "mesh+skeleton":
-                if i == 0:
-                    logger.info("[Body2COLMAP] Calling render_composite (mesh+skeleton)...")
-                img = renderer.render_composite(
-                    camera=camera,
-                    modes={
-                        "mesh": {"color": mesh_color, "bg_color": bg_color},
-                        "skeleton": {
-                            "target_format": skeleton_format,
-                            "joint_radius": joint_radius,
-                            "bone_radius": bone_radius
-                        }
-                    }
-                )
-            elif render_mode == "depth+skeleton":
-                if i == 0:
-                    logger.info("[Body2COLMAP] Calling render_composite (depth+skeleton)...")
-                img = renderer.render_composite(
-                    camera=camera,
-                    modes={
-                        "depth": {"colormap": depth_cmap},
-                        "skeleton": {
-                            "target_format": skeleton_format,
-                            "joint_radius": joint_radius,
-                            "bone_radius": bone_radius
-                        }
-                    }
-                )
-            else:
-                raise ValueError(f"Unknown render mode: {render_mode}")
+                logger.info("[Body2COLMAP] Rendering first frame...")
+
+            # Render splat (returns RGBA uint8)
+            img = renderer.render(camera=camera, bg_color=bg_color)
+
             if i == 0:
-                logger.info(f"[Body2COLMAP] First frame complete ({time.time() - frame_start:.2f}s)")
+                logger.info(
+                    f"[Body2COLMAP] First frame complete ({time.time() - frame_start:.2f}s)"
+                )
 
             rendered_images.append(img)
             frame_time = time.time() - frame_start
-            logger.debug(f"[Body2COLMAP] Frame {i+1}/{n_frames} rendered ({frame_time:.2f}s)")
+            logger.debug(
+                f"[Body2COLMAP] Frame {i+1}/{n_frames} rendered ({frame_time:.2f}s)"
+            )
             pbar.update(1)
 
-        logger.info(f"[Body2COLMAP] Render loop complete")
+        logger.info("[Body2COLMAP] Render loop complete")
 
         # Convert to ComfyUI IMAGE and MASK formats
         logger.info("[Body2COLMAP] Converting rendered images to ComfyUI format...")
@@ -340,10 +261,10 @@ class Body2COLMAP_Render:
         images_tensor, masks_tensor = rendered_to_comfy(rendered_images)
         logger.info(f"[Body2COLMAP] Conversion complete ({time.time() - t0:.2f}s)")
 
-        # Sample point cloud from scene (do this while we still have the scene!)
-        logger.info(f"[Body2COLMAP] Sampling {pointcloud_samples} points from scene...")
+        # Sample point cloud from splat scene (do this while we still have the scene!)
+        logger.info(f"[Body2COLMAP] Sampling {pointcloud_samples} points from splat scene...")
         t0 = time.time()
-        points, colors = scene.get_point_cloud(n_samples=pointcloud_samples)
+        points, colors = splat_scene.get_point_cloud(n_samples=pointcloud_samples)
         logger.info(f"[Body2COLMAP] Point cloud sampled ({time.time() - t0:.2f}s)")
 
         # Generate standardized filenames (1-based indexing with trailing underscore)

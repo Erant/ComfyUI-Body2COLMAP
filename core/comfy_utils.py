@@ -47,19 +47,25 @@ def comfy_to_cv2(images: torch.Tensor) -> List[NDArray]:
     Convert ComfyUI IMAGE to list of OpenCV BGR images for saving.
 
     Args:
-        images: Tensor of shape [B, H, W, 3] in [0, 1] (RGB)
+        images: Tensor of shape [B, H, W, 3] or [B, H, W, 4] in [0, 1] (RGB or RGBA)
 
     Returns:
-        List of [H, W, 3] uint8 BGR arrays
+        List of [H, W, 3] or [H, W, 4] uint8 BGR(A) arrays
     """
     # To numpy
-    batch = images.cpu().numpy()  # [B, H, W, 3]
+    batch = images.cpu().numpy()  # [B, H, W, C] where C is 3 or 4
 
     # Scale to [0, 255]
     batch = (batch * 255).astype(np.uint8)
 
-    # RGB to BGR for OpenCV
-    batch = batch[..., ::-1]
+    # RGB(A) to BGR(A) for OpenCV - reverse the first 3 channels, keep alpha if present
+    if batch.shape[-1] == 3:
+        batch = batch[..., ::-1]  # RGB -> BGR
+    elif batch.shape[-1] == 4:
+        # RGBA -> BGRA (reverse first 3 channels, keep alpha in position 3)
+        batch = np.concatenate([batch[..., 2:3], batch[..., 1:2], batch[..., 0:1], batch[..., 3:4]], axis=-1)
+    else:
+        raise ValueError(f"Expected 3 or 4 channels, got {batch.shape[-1]}")
 
     return [batch[i] for i in range(batch.shape[0])]
 
