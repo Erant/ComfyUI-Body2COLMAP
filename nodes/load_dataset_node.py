@@ -134,7 +134,7 @@ class Body2COLMAP_LoadDataset:
             directory: Base directory name (in output folder)
             index: Dataset index (-1 = exact path, >=0 = append _NNNNN)
             index_control: Control for index behavior (fixed/increment/decrement)
-                          Note: This must be manually updated by user between runs
+                          Auto-updates index widget after execution via JavaScript
 
         Returns:
             b2c_data: B2C_COLMAP_METADATA
@@ -256,4 +256,8 @@ class Body2COLMAP_LoadDataset:
         if reference_path.exists():
             print("[Body2COLMAP] - reference.png")
 
-        return (b2c_data, images_tensor, masks_tensor, reference_tensor)
+        # Return with UI updates to trigger JavaScript onExecuted hook
+        return {
+            "ui": {"index": [index]},
+            "result": (b2c_data, images_tensor, masks_tensor, reference_tensor)
+        }
