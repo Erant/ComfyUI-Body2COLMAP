@@ -5,11 +5,11 @@ app.registerExtension({
     name: "Body2COLMAP.LoadDataset",
 
     async beforeRegisterNodeDef(nodeType, nodeData, app) {
-        if (nodeData.name === "Body2COLMAP_LoadDataset") {
+        if (nodeType.comfyClass === "Body2COLMAP_LoadDataset") {
             const onExecuted = nodeType.prototype.onExecuted;
 
             nodeType.prototype.onExecuted = function(message) {
-                const result = onExecuted?.apply(this, arguments);
+                onExecuted?.apply(this, arguments);
 
                 // Find the index and index_control widgets
                 const indexWidget = this.widgets?.find(w => w.name === "index");
@@ -25,8 +25,6 @@ app.registerExtension({
                     }
                     // "fixed" does nothing
                 }
-
-                return result;
             };
         }
     }
