@@ -4,7 +4,6 @@ import subprocess
 import tempfile
 import shutil
 import logging
-import re
 import time
 import threading
 from pathlib import Path
@@ -232,11 +231,11 @@ class Body2COLMAP_RunBrush:
             if masks is not None:
                 cmd.extend(["--alpha-mode", alpha_mode])
 
-            # 7. Execute brush with progress tracking
+            # 7. Execute brush
             logger.info(f"[Body2COLMAP] Running brush: {' '.join(cmd)}")
             print(f"[Body2COLMAP] Starting brush training ({total_steps} steps)...")
 
-            # Create progress bar
+            # Create progress bar (needed for interrupt checking)
             pbar = comfy.utils.ProgressBar(total_steps)
 
             process = None
@@ -251,13 +250,7 @@ class Body2COLMAP_RunBrush:
                     cwd=str(Path.cwd())
                 )
 
-                # Pattern to match step numbers in brush output
-                # Looks for patterns like "step 100" or "100/30000" or "[100/30000]"
-                step_pattern = re.compile(r'(?:step|iter|iteration)?\s*(\d+)(?:/\d+)?', re.IGNORECASE)
-
-                last_step = 0
                 output_lines = []
-                start_time = time.time()
 
                 # Thread to read output without blocking
                 def read_output():
@@ -271,35 +264,12 @@ class Body2COLMAP_RunBrush:
                 output_thread = threading.Thread(target=read_output, daemon=True)
                 output_thread.start()
 
-                # Poll the process and update progress periodically
+                # Poll the process and check for interrupts periodically
                 while True:
                     # Check if process has finished
                     return_code = process.poll()
                     if return_code is not None:
                         break
-
-                    # Parse any new output for step numbers
-                    for line in list(output_lines):  # Copy to avoid modification during iteration
-                        match = step_pattern.search(line)
-                        if match:
-                            try:
-                                current_step = int(match.group(1))
-                                if current_step > last_step and current_step <= total_steps:
-                                    step_diff = current_step - last_step
-                                    pbar.update(step_diff)
-                                    last_step = current_step
-                            except (ValueError, IndexError):
-                                pass
-
-                    # If no output, estimate progress based on time
-                    # (very rough estimate: assume linear progress over time)
-                    if last_step == 0:
-                        elapsed = time.time() - start_time
-                        # Assume 30000 steps takes ~5-10 minutes, estimate ~100 steps/second
-                        estimated_step = min(int(elapsed * 50), total_steps)
-                        if estimated_step > last_step:
-                            pbar.update(estimated_step - last_step)
-                            last_step = estimated_step
 
                     # Allow interrupt checking by updating progress bar
                     pbar.update(0)
