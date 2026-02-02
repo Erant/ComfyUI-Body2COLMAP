@@ -295,7 +295,7 @@ class Body2COLMAP_RunBrush:
                 # Log full output at debug level
                 logger.debug(f"[Body2COLMAP] Brush output:\n{''.join(output_lines)}")
 
-            except KeyboardInterrupt:
+            except (KeyboardInterrupt, comfy.model_management.InterruptProcessingException):
                 # User cancelled - kill the subprocess
                 logger.info("[Body2COLMAP] Training cancelled by user, terminating brush process...")
                 print("[Body2COLMAP] Training cancelled, terminating brush process...")
