@@ -222,6 +222,7 @@ class Body2COLMAP_Render:
                 n_frames=params["n_frames"],
                 elevation_deg=params["elevation_deg"],
                 start_azimuth_deg=params.get("start_azimuth_deg", 0.0),
+                overlap=params.get("overlap", 1),
                 camera_template=camera_template
             )
         elif pattern == "sinusoidal":
