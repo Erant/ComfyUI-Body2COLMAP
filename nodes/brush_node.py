@@ -4,6 +4,7 @@ import subprocess
 import tempfile
 import shutil
 import logging
+import re
 from pathlib import Path
 import numpy as np
 import cv2
@@ -11,6 +12,7 @@ import gc
 
 import torch
 import comfy.model_management as model_management
+import comfy.utils
 
 from body2colmap.exporter import ColmapExporter
 from body2colmap.splat_scene import SplatScene
@@ -225,42 +227,76 @@ class Body2COLMAP_RunBrush:
             if masks is not None:
                 cmd.extend(["--alpha-mode", alpha_mode])
 
-            # 7. Execute brush
+            # 7. Execute brush with progress tracking
             logger.info(f"[Body2COLMAP] Running brush: {' '.join(cmd)}")
             print(f"[Body2COLMAP] Starting brush training ({total_steps} steps)...")
 
+            # Create progress bar
+            pbar = comfy.utils.ProgressBar(total_steps)
+
             try:
-                result = subprocess.run(
+                # Use Popen to stream output in real-time
+                process = subprocess.Popen(
                     cmd,
-                    check=True,
-                    capture_output=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,  # Merge stderr into stdout
                     text=True,
+                    bufsize=1,  # Line buffered
                     cwd=str(Path.cwd())
                 )
+
+                # Pattern to match step numbers in brush output
+                # Looks for patterns like "step 100" or "100/30000" or "[100/30000]"
+                step_pattern = re.compile(r'(?:step|iter|iteration)?\s*(\d+)(?:/\d+)?', re.IGNORECASE)
+
+                last_step = 0
+                output_lines = []
+
+                # Read output line by line
+                for line in process.stdout:
+                    output_lines.append(line)
+                    logger.debug(f"[Brush] {line.rstrip()}")
+
+                    # Try to find step number in the line
+                    match = step_pattern.search(line)
+                    if match:
+                        try:
+                            current_step = int(match.group(1))
+                            # Only update if step increased (avoid counting backwards)
+                            if current_step > last_step and current_step <= total_steps:
+                                # Update by the difference
+                                step_diff = current_step - last_step
+                                pbar.update(step_diff)
+                                last_step = current_step
+                        except (ValueError, IndexError):
+                            pass
+
+                # Wait for process to complete
+                return_code = process.wait()
+
+                if return_code != 0:
+                    logger.error("[Body2COLMAP] Brush failed")
+                    logger.error(f"[Body2COLMAP] Output:\n{''.join(output_lines)}")
+                    raise RuntimeError(
+                        f"Brush training failed with exit code {return_code}.\n"
+                        f"Command: {' '.join(cmd)}\n"
+                        f"Check logs for details."
+                    )
 
                 logger.info("[Body2COLMAP] Brush training completed successfully")
                 print("[Body2COLMAP] Brush training completed successfully")
 
-                if result.stdout:
-                    logger.info(f"[Body2COLMAP] Brush output:\n{result.stdout}")
+                # Log full output at debug level
+                logger.debug(f"[Body2COLMAP] Brush output:\n{''.join(output_lines)}")
 
-                if result.stderr:
-                    logger.warning(f"[Body2COLMAP] Brush stderr:\n{result.stderr}")
-
-            except subprocess.CalledProcessError as e:
-                logger.error(f"[Body2COLMAP] Brush failed with exit code {e.returncode}")
-                logger.error(f"[Body2COLMAP] Stdout:\n{e.stdout}")
-                logger.error(f"[Body2COLMAP] Stderr:\n{e.stderr}")
-                raise RuntimeError(
-                    f"Brush training failed with exit code {e.returncode}.\n"
-                    f"Command: {' '.join(cmd)}\n"
-                    f"Error: {e.stderr}"
-                )
             except FileNotFoundError:
                 raise RuntimeError(
                     f"Brush executable not found at: {brush_path}\n"
                     f"Please ensure brush is installed and the path is correct."
                 )
+            except Exception as e:
+                logger.error(f"[Body2COLMAP] Unexpected error running brush: {e}")
+                raise
 
         # 8. Load trained splat
         ply_path = temp_output / ply_output_name
