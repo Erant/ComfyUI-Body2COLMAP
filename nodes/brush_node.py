@@ -141,7 +141,7 @@ class Body2COLMAP_RunBrush:
         # 1. Create temporary directory for brush output (persists after function returns)
         import time
         timestamp = int(time.time() * 1000)  # milliseconds for uniqueness
-        temp_output = Path("output") / "brush_temp" / f"training_{timestamp}"
+        temp_output = Path("temp") / "brush" / f"training_{timestamp}"
         temp_output.mkdir(parents=True, exist_ok=True)
 
         logger.info(f"[Body2COLMAP] Brush temporary output: {temp_output}")
