@@ -94,7 +94,7 @@ class Body2COLMAP_RunBrush:
                     "tooltip": "Refinement frequency (steps between densification)"
                 }),
                 "alpha_mode": (["masked", "transparent"], {
-                    "default": "masked",
+                    "default": "transparent",
                     "tooltip": "How to interpret alpha channel in images"
                 }),
             }
@@ -113,7 +113,7 @@ class Body2COLMAP_RunBrush:
         max_resolution=1920,
         max_splats=10000000,
         refine_every=200,
-        alpha_mode="masked",
+        alpha_mode="transparent",
     ):
         """
         Execute brush training on the provided dataset.
