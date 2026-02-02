@@ -15,7 +15,6 @@ import comfy.model_management as model_management
 from body2colmap.exporter import ColmapExporter
 from body2colmap.splat_scene import SplatScene
 from ..core.comfy_utils import comfy_to_cv2
-from .save_dataset_node import get_next_numbered_directory
 
 logger = logging.getLogger(__name__)
 
@@ -25,13 +24,12 @@ class Body2COLMAP_RunBrush:
 
     CATEGORY = "Body2COLMAP"
     FUNCTION = "run_brush"
-    RETURN_TYPES = ("SPLAT_SCENE", "B2C_COLMAP_METADATA", "STRING")
-    RETURN_NAMES = ("splat_scene", "b2c_data", "output_path")
+    RETURN_TYPES = ("SPLAT_SCENE", "B2C_COLMAP_METADATA")
+    RETURN_NAMES = ("splat_scene", "b2c_data")
     OUTPUT_NODE = True
     OUTPUT_TOOLTIPS = (
         "Trained Gaussian splat scene",
-        "Updated B2C metadata with splat reference",
-        "Path to the output directory"
+        "Updated B2C metadata with splat reference (use Save Dataset to persist)"
     )
 
     @classmethod
@@ -47,10 +45,6 @@ class Body2COLMAP_RunBrush:
                 "brush_path": ("STRING", {
                     "default": "brush",
                     "tooltip": "Path to the brush executable (or 'brush' if in PATH)"
-                }),
-                "output_directory": ("STRING", {
-                    "default": "brush_output",
-                    "tooltip": "Base directory name for output (in output folder)"
                 }),
                 "total_steps": ("INT", {
                     "default": 30000,
@@ -69,10 +63,6 @@ class Body2COLMAP_RunBrush:
             "optional": {
                 "masks": ("MASK", {
                     "tooltip": "Optional masks for alpha channel"
-                }),
-                "auto_increment": ("BOOLEAN", {
-                    "default": True,
-                    "tooltip": "Auto-number output directories"
                 }),
                 "unload_models": ("BOOLEAN", {
                     "default": True,
@@ -115,11 +105,9 @@ class Body2COLMAP_RunBrush:
         b2c_data,
         images,
         brush_path,
-        output_directory,
         total_steps,
         sh_degree,
         masks=None,
-        auto_increment=True,
         unload_models=True,
         with_viewer=False,
         max_resolution=1920,
@@ -134,11 +122,9 @@ class Body2COLMAP_RunBrush:
             b2c_data: B2C_COLMAP_METADATA with cameras, image_names, points_3d
             images: ComfyUI IMAGE tensor
             brush_path: Path to brush executable
-            output_directory: Base directory name
             total_steps: Number of training iterations
             sh_degree: Spherical harmonics degree
             masks: Optional MASK tensor for alpha channel
-            auto_increment: Auto-number output directories
             unload_models: Unload ComfyUI models before training
             with_viewer: Spawn viewer during training
             max_resolution: Maximum image resolution
@@ -147,18 +133,16 @@ class Body2COLMAP_RunBrush:
             alpha_mode: How to interpret alpha channel
 
         Returns:
-            Tuple of (splat_scene, updated_b2c_data, output_path)
+            Tuple of (splat_scene, updated_b2c_data)
         """
 
-        # 1. Prepare output directory
-        output_base = Path("output") / output_directory
-        if auto_increment:
-            output_path = get_next_numbered_directory(output_base)
-        else:
-            output_path = output_base
-        output_path.mkdir(parents=True, exist_ok=True)
+        # 1. Create temporary directory for brush output (persists after function returns)
+        import time
+        timestamp = int(time.time() * 1000)  # milliseconds for uniqueness
+        temp_output = Path("output") / "brush_temp" / f"training_{timestamp}"
+        temp_output.mkdir(parents=True, exist_ok=True)
 
-        logger.info(f"[Body2COLMAP] Brush output directory: {output_path}")
+        logger.info(f"[Body2COLMAP] Brush temporary output: {temp_output}")
 
         # 2. Create temporary COLMAP directory
         with tempfile.TemporaryDirectory(prefix="b2c_colmap_") as temp_dir:
@@ -227,7 +211,7 @@ class Body2COLMAP_RunBrush:
                 str(temp_path),
                 "--total-steps", str(total_steps),
                 "--sh-degree", str(sh_degree),
-                "--export-path", str(output_path),
+                "--export-path", str(temp_output.absolute()),
                 "--export-name", ply_output_name,
                 "--export-every", str(total_steps),  # Only export at end
                 "--max-resolution", str(max_resolution),
@@ -279,7 +263,7 @@ class Body2COLMAP_RunBrush:
                 )
 
         # 8. Load trained splat
-        ply_path = output_path / ply_output_name
+        ply_path = temp_output / ply_output_name
         if not ply_path.exists():
             raise RuntimeError(
                 f"Expected output PLY file not found: {ply_path}\n"
@@ -289,13 +273,15 @@ class Body2COLMAP_RunBrush:
         logger.info(f"[Body2COLMAP] Loading trained splat from {ply_path}")
         splat_scene = SplatScene.from_ply(str(ply_path))
         logger.info(f"[Body2COLMAP] Loaded splat with {len(splat_scene)} Gaussians")
-        print(f"[Body2COLMAP] Loaded splat with {len(splat_scene)} Gaussians, SH degree {splat_scene.sh_degree}")
+        print(f"[Body2COLMAP] Trained splat: {len(splat_scene)} Gaussians, SH degree {splat_scene.sh_degree}")
+        print(f"[Body2COLMAP] Temporary output: {temp_output}")
+        print(f"[Body2COLMAP] Use Save Dataset to persist the trained splat")
 
         # 9. Update b2c_data with splat metadata
         updated_b2c_data = b2c_data.copy()
-        updated_b2c_data["splat_path"] = str(ply_path)
+        updated_b2c_data["splat_path"] = str(ply_path.absolute())
 
-        return (splat_scene, updated_b2c_data, str(output_path))
+        return (splat_scene, updated_b2c_data)
 
     def _unload_comfy_models(self):
         """Unload all ComfyUI models to free VRAM for brush training."""
