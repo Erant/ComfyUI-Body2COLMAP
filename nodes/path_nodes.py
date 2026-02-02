@@ -43,10 +43,17 @@ class Body2COLMAP_CircularPath:
                     "step": 5.0,
                     "tooltip": "Starting azimuth angle (0=front)"
                 }),
+                "overlap": ("INT", {
+                    "default": 1,
+                    "min": 0,
+                    "max": 100,
+                    "step": 1,
+                    "tooltip": "Number of overlapping frames at start/end (1=seamless loop, 0=no overlap)"
+                }),
             }
         }
 
-    def configure(self, n_frames, elevation_deg, radius=0.0, start_azimuth_deg=0.0):
+    def configure(self, n_frames, elevation_deg, radius=0.0, start_azimuth_deg=0.0, overlap=1):
         """Return circular path configuration."""
         return ({
             "pattern": "circular",
@@ -55,6 +62,7 @@ class Body2COLMAP_CircularPath:
                 "elevation_deg": float(elevation_deg),
                 "radius": float(radius) if radius > 0 else None,
                 "start_azimuth_deg": float(start_azimuth_deg),
+                "overlap": int(overlap),
             }
         },)
 
