@@ -82,7 +82,11 @@ def extract_alpha_to_comfy_mask(images_bgra: list) -> torch.Tensor:
 
 
 class Body2COLMAP_LoadDataset:
-    """Load Body2COLMAP dataset from disk."""
+    """
+    Load Body2COLMAP dataset from disk.
+
+    Supports auto-incrementing index for batch processing multiple datasets.
+    """
 
     CATEGORY = "Body2COLMAP"
     FUNCTION = "load"
@@ -107,16 +111,13 @@ class Body2COLMAP_LoadDataset:
                     "default": -1,
                     "min": -1,
                     "max": 99999,
+                    "control_after_generate": True,
                     "tooltip": "Dataset index (-1 = use directory as-is, >=0 = append _NNNNN)"
-                }),
-                "index_control": (["fixed", "increment", "decrement"], {
-                    "default": "fixed",
-                    "tooltip": "How to update index after execution (fixed=no change, increment=+1, decrement=-1)"
                 }),
             }
         }
 
-    def load(self, directory, index=-1, index_control="fixed"):
+    def load(self, directory, index=-1):
         """
         Load Body2COLMAP dataset from disk.
 
@@ -133,8 +134,7 @@ class Body2COLMAP_LoadDataset:
         Args:
             directory: Base directory name (in output folder)
             index: Dataset index (-1 = exact path, >=0 = append _NNNNN)
-            index_control: Control for index behavior (fixed/increment/decrement)
-                          Auto-updates index widget after execution via JavaScript
+                   Use control_after_generate dropdown for auto-increment behavior.
 
         Returns:
             b2c_data: B2C_COLMAP_METADATA
@@ -256,8 +256,4 @@ class Body2COLMAP_LoadDataset:
         if reference_path.exists():
             print("[Body2COLMAP] - reference.png")
 
-        # Return with UI updates to trigger JavaScript onExecuted hook
-        return {
-            "ui": {"index": [index]},
-            "result": (b2c_data, images_tensor, masks_tensor, reference_tensor)
-        }
+        return (b2c_data, images_tensor, masks_tensor, reference_tensor)
