@@ -234,6 +234,7 @@ class Body2COLMAP_RunBrush:
             # Create progress bar
             pbar = comfy.utils.ProgressBar(total_steps)
 
+            process = None
             try:
                 # Use Popen to stream output in real-time
                 process = subprocess.Popen(
@@ -289,12 +290,36 @@ class Body2COLMAP_RunBrush:
                 # Log full output at debug level
                 logger.debug(f"[Body2COLMAP] Brush output:\n{''.join(output_lines)}")
 
-            except FileNotFoundError:
-                raise RuntimeError(
-                    f"Brush executable not found at: {brush_path}\n"
-                    f"Please ensure brush is installed and the path is correct."
-                )
+            except KeyboardInterrupt:
+                # User cancelled - kill the subprocess
+                logger.info("[Body2COLMAP] Training cancelled by user, terminating brush process...")
+                print("[Body2COLMAP] Training cancelled, terminating brush process...")
+                if process is not None:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        logger.warning("[Body2COLMAP] Brush did not terminate, killing forcefully...")
+                        process.kill()
+                        process.wait()
+                raise
             except Exception as e:
+                # Any other exception - make sure to clean up subprocess
+                if process is not None and process.poll() is None:
+                    logger.warning("[Body2COLMAP] Exception occurred, terminating brush process...")
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
+
+                if isinstance(e, FileNotFoundError):
+                    raise RuntimeError(
+                        f"Brush executable not found at: {brush_path}\n"
+                        f"Please ensure brush is installed and the path is correct."
+                    )
+
                 logger.error(f"[Body2COLMAP] Unexpected error running brush: {e}")
                 raise
 
