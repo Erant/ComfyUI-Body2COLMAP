@@ -5,6 +5,8 @@ import tempfile
 import shutil
 import logging
 import re
+import time
+import threading
 from pathlib import Path
 import numpy as np
 import cv2
@@ -36,7 +38,6 @@ class Body2COLMAP_RunBrush:
     @classmethod
     def IS_CHANGED(cls, **kwargs):
         # Always re-execute training (never use cached results)
-        import time
         return time.time()
 
     @classmethod
@@ -144,7 +145,6 @@ class Body2COLMAP_RunBrush:
         """
 
         # 1. Create temporary directory for brush output (persists after function returns)
-        import time
         timestamp = int(time.time() * 1000)  # milliseconds for uniqueness
         temp_output = Path("temp") / "brush" / f"training_{timestamp}"
         temp_output.mkdir(parents=True, exist_ok=True)
@@ -257,28 +257,58 @@ class Body2COLMAP_RunBrush:
 
                 last_step = 0
                 output_lines = []
+                start_time = time.time()
 
-                # Read output line by line
-                for line in process.stdout:
-                    output_lines.append(line)
-                    logger.debug(f"[Brush] {line.rstrip()}")
+                # Thread to read output without blocking
+                def read_output():
+                    try:
+                        for line in process.stdout:
+                            output_lines.append(line)
+                            logger.debug(f"[Brush] {line.rstrip()}")
+                    except:
+                        pass
 
-                    # Try to find step number in the line
-                    match = step_pattern.search(line)
-                    if match:
-                        try:
-                            current_step = int(match.group(1))
-                            # Only update if step increased (avoid counting backwards)
-                            if current_step > last_step and current_step <= total_steps:
-                                # Update by the difference
-                                step_diff = current_step - last_step
-                                pbar.update(step_diff)
-                                last_step = current_step
-                        except (ValueError, IndexError):
-                            pass
+                output_thread = threading.Thread(target=read_output, daemon=True)
+                output_thread.start()
 
-                # Wait for process to complete
-                return_code = process.wait()
+                # Poll the process and update progress periodically
+                while True:
+                    # Check if process has finished
+                    return_code = process.poll()
+                    if return_code is not None:
+                        break
+
+                    # Parse any new output for step numbers
+                    for line in list(output_lines):  # Copy to avoid modification during iteration
+                        match = step_pattern.search(line)
+                        if match:
+                            try:
+                                current_step = int(match.group(1))
+                                if current_step > last_step and current_step <= total_steps:
+                                    step_diff = current_step - last_step
+                                    pbar.update(step_diff)
+                                    last_step = current_step
+                            except (ValueError, IndexError):
+                                pass
+
+                    # If no output, estimate progress based on time
+                    # (very rough estimate: assume linear progress over time)
+                    if last_step == 0:
+                        elapsed = time.time() - start_time
+                        # Assume 30000 steps takes ~5-10 minutes, estimate ~100 steps/second
+                        estimated_step = min(int(elapsed * 50), total_steps)
+                        if estimated_step > last_step:
+                            pbar.update(estimated_step - last_step)
+                            last_step = estimated_step
+
+                    # Allow interrupt checking by updating progress bar
+                    pbar.update(0)
+
+                    # Sleep briefly before next check
+                    time.sleep(0.5)
+
+                # Wait for output thread to finish
+                output_thread.join(timeout=1.0)
 
                 if return_code != 0:
                     logger.error("[Body2COLMAP] Brush failed")
