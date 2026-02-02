@@ -28,11 +28,16 @@ class Body2COLMAP_RunBrush:
     FUNCTION = "run_brush"
     RETURN_TYPES = ("SPLAT_SCENE", "B2C_COLMAP_METADATA")
     RETURN_NAMES = ("splat_scene", "b2c_data")
-    OUTPUT_NODE = True
     OUTPUT_TOOLTIPS = (
         "Trained Gaussian splat scene",
         "Updated B2C metadata with splat reference (use Save Dataset to persist)"
     )
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        # Always re-execute training (never use cached results)
+        import time
+        return time.time()
 
     @classmethod
     def INPUT_TYPES(cls):
