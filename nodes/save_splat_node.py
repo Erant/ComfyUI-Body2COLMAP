@@ -63,6 +63,10 @@ class Body2COLMAP_SaveSplat:
                 "splat_scene": ("SPLAT_SCENE", {
                     "tooltip": "Gaussian Splat scene to save"
                 }),
+                "source_filepath": ("STRING", {
+                    "default": "",
+                    "tooltip": "Source PLY file path (from UnpackDataset or LoadSplat)"
+                }),
                 "output_directory": ("STRING", {
                     "default": "splats",
                     "tooltip": "Output directory name (in output folder)"
@@ -75,20 +79,10 @@ class Body2COLMAP_SaveSplat:
                     "default": True,
                     "tooltip": "Auto-number files (splat_00001.ply, splat_00002.ply, etc.)"
                 }),
-            },
-            "optional": {
-                "b2c_data": ("B2C_COLMAP_METADATA", {
-                    "tooltip": "Optional metadata to get source splat path automatically"
-                }),
-                "source_filepath": ("STRING", {
-                    "default": "",
-                    "tooltip": "Manual source PLY path (overrides b2c_data)"
-                }),
             }
         }
 
-    def save(self, splat_scene, output_directory, filename, auto_increment=True,
-             b2c_data=None, source_filepath=""):
+    def save(self, splat_scene, source_filepath, output_directory, filename, auto_increment=True):
         """
         Save Gaussian Splat to output directory.
 
@@ -98,35 +92,25 @@ class Body2COLMAP_SaveSplat:
 
         Args:
             splat_scene: SPLAT_SCENE object (for validation/info)
+            source_filepath: Source PLY file path
             output_directory: Output directory name (in output folder)
             filename: Output filename (e.g., splat.ply)
             auto_increment: If True, create numbered files
-            b2c_data: Optional metadata containing splat_path
-            source_filepath: Optional manual source path (overrides b2c_data)
 
         Returns:
             Absolute path to saved file
         """
-        # Determine source PLY file path
-        source_path = None
+        # Validate source path
+        if not source_filepath or not source_filepath.strip():
+            raise ValueError(
+                "Source filepath is required. "
+                "Connect splat_path from UnpackDataset node or provide filepath manually."
+            )
 
-        if source_filepath and source_filepath.strip():
-            # Manual source path provided
-            source_path = Path(source_filepath.strip())
-        elif b2c_data and "splat_path" in b2c_data:
-            # Get from metadata
-            splat_path = b2c_data["splat_path"]
-            if splat_path:
-                source_path = Path(splat_path)
+        source_path = Path(source_filepath.strip())
 
-        if source_path is None or not source_path.exists():
-            if source_path is None:
-                raise ValueError(
-                    "No source splat path found. "
-                    "Provide either 'b2c_data' with splat_path or 'source_filepath'."
-                )
-            else:
-                raise FileNotFoundError(f"Source splat file not found: {source_path}")
+        if not source_path.exists():
+            raise FileNotFoundError(f"Source splat file not found: {source_path}")
 
         # Build output path
         output_dir = Path("output") / output_directory
