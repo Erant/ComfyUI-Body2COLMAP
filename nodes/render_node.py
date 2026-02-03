@@ -203,7 +203,7 @@ class Body2COLMAP_Render:
         all_framing_bounds["full"] = scene.get_bounds()
 
         # Compute partial framing bounds if skeleton is available
-        if scene.skeleton is not None:
+        if scene.skeleton_joints is not None:
             for preset in ["torso", "bust", "head"]:
                 try:
                     all_framing_bounds[preset] = scene.get_framing_bounds(preset=preset)
