@@ -14,9 +14,11 @@ class B2C_PATH_CONFIG(TypedDict):
     Attributes:
         pattern: Path pattern type ("circular", "sinusoidal", "helical")
         params: Pattern-specific parameters dict
+        framing: Camera framing preset ("full", "torso", "bust", "head")
     """
     pattern: str
     params: Dict[str, Any]
+    framing: str
 
 
 class B2C_COLMAP_METADATA(TypedDict, total=False):
@@ -31,12 +33,15 @@ class B2C_COLMAP_METADATA(TypedDict, total=False):
         points_3d: Tuple of (positions, colors) arrays for initial point cloud [required]
         resolution: Image resolution (width, height) [required]
         splat_path: Path to trained Gaussian splat PLY file [optional, None or "" if no splat]
+        framing_bounds: Dict mapping framing presets to their bounding boxes [optional]
+                       e.g., {"full": (min, max), "torso": (min, max), "bust": (min, max), "head": (min, max)}
     """
     cameras: List[Any]  # List[Camera] - avoiding import here
     image_names: List[str]
     points_3d: Tuple[NDArray[np.float32], NDArray[np.uint8]]
     resolution: Tuple[int, int]
     splat_path: Optional[str]  # Optional field for splat integration
+    framing_bounds: Optional[Dict[str, Tuple[NDArray[np.float32], NDArray[np.float32]]]]  # preset -> (min_corner, max_corner)
 
 
 # Custom type identifier for Gaussian Splat scenes

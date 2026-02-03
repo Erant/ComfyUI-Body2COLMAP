@@ -86,16 +86,18 @@ class Body2COLMAP_LoadDataset:
     Load Body2COLMAP dataset from disk.
 
     Supports auto-incrementing index for batch processing multiple datasets.
+    Can split large datasets into smaller batches for VRAM efficiency.
     """
 
     CATEGORY = "Body2COLMAP"
     FUNCTION = "load"
     RETURN_TYPES = ("B2C_COLMAP_METADATA", "IMAGE", "MASK", "IMAGE", "SPLAT_SCENE")
     RETURN_NAMES = ("b2c_data", "images", "masks", "reference_image", "splat_scene")
+    OUTPUT_IS_LIST = (False, True, True, False, False)  # images and masks are lists for batching
     OUTPUT_TOOLTIPS = (
         "Body2COLMAP dataset metadata (connect to ExportCOLMAP or SaveDataset)",
-        "Batch of loaded images",
-        "Batch of alpha masks",
+        "List of image batches (processed sequentially)",
+        "List of mask batches (processed sequentially)",
         "Reference image for preview (empty if not saved)",
         "Trained Gaussian splat scene (None if not saved)"
     )
@@ -115,10 +117,17 @@ class Body2COLMAP_LoadDataset:
                     "control_after_generate": True,
                     "tooltip": "Dataset index (-1 = use directory as-is, >=0 = append _NNNNN)"
                 }),
+                "batch_size": ("INT", {
+                    "default": 0,
+                    "min": 0,
+                    "max": 10000,
+                    "step": 1,
+                    "tooltip": "Max images per batch (0 = load all at once, >0 = split into smaller batches for VRAM)"
+                }),
             }
         }
 
-    def load(self, directory, index=-1):
+    def load(self, directory, index=-1, batch_size=0):
         """
         Load Body2COLMAP dataset from disk.
 
@@ -137,11 +146,12 @@ class Body2COLMAP_LoadDataset:
             directory: Base directory name (in output folder)
             index: Dataset index (-1 = exact path, >=0 = append _NNNNN)
                    Use control_after_generate dropdown for auto-increment behavior.
+            batch_size: Max images per batch (0 = all at once, >0 = split for VRAM efficiency)
 
         Returns:
             b2c_data: B2C_COLMAP_METADATA
-            images: ComfyUI IMAGE tensor
-            masks: ComfyUI MASK tensor
+            images: List of ComfyUI IMAGE tensors (one per batch)
+            masks: List of ComfyUI MASK tensors (one per batch)
             reference_image: ComfyUI IMAGE tensor (or empty if not present)
             splat_scene: SPLAT_SCENE object (or None if not present)
         """
@@ -272,13 +282,36 @@ class Body2COLMAP_LoadDataset:
         else:
             b2c_data["splat_path"] = None
 
+        # Split into batches if batch_size > 0
+        if batch_size > 0:
+            num_images = images_tensor.shape[0]
+            num_batches = (num_images + batch_size - 1) // batch_size  # Ceiling division
+
+            images_batches = []
+            masks_batches = []
+
+            for i in range(num_batches):
+                start_idx = i * batch_size
+                end_idx = min(start_idx + batch_size, num_images)
+
+                images_batches.append(images_tensor[start_idx:end_idx])
+                masks_batches.append(masks_tensor[start_idx:end_idx])
+
+            logger.info(f"[Body2COLMAP] Split {num_images} images into {num_batches} batches of up to {batch_size} images")
+        else:
+            # No batching - return single-element lists
+            images_batches = [images_tensor]
+            masks_batches = [masks_tensor]
+
         print(f"[Body2COLMAP] Loaded dataset from: {dataset_path}")
         print(f"[Body2COLMAP] - {len(image_names)} images")
         print(f"[Body2COLMAP] - {len(cameras)} cameras")
         print(f"[Body2COLMAP] - {len(positions)} points")
+        if batch_size > 0:
+            print(f"[Body2COLMAP] - {len(images_batches)} batches (max {batch_size} images per batch)")
         if reference_path.exists():
             print("[Body2COLMAP] - reference.png")
         if splat_scene is not None:
             print(f"[Body2COLMAP] - splat.ply ({len(splat_scene)} Gaussians)")
 
-        return (b2c_data, images_tensor, masks_tensor, reference_tensor, splat_scene)
+        return (b2c_data, images_batches, masks_batches, reference_tensor, splat_scene)

@@ -6,9 +6,8 @@ import time
 import comfy.utils
 from body2colmap.path import OrbitPath
 from body2colmap.camera import Camera
-from body2colmap.utils import compute_default_focal_length
+from body2colmap.utils import compute_default_focal_length, compute_auto_orbit_radius
 from ..core.comfy_utils import rendered_to_comfy
-from ..core.path_utils import compute_smart_orbit_radius
 from ..core.camera_utils import focal_length_mm_to_pixels
 
 logger = logging.getLogger(__name__)
@@ -49,6 +48,11 @@ class Body2COLMAP_RenderSplat:
                 }),
             },
             "optional": {
+                # Metadata from mesh renderer (for consistent framing)
+                "b2c_data": ("B2C_COLMAP_METADATA", {
+                    "tooltip": "Optional metadata from mesh renderer to use same framing bounds"
+                }),
+
                 # Camera parameters
                 "focal_length_mm": ("FLOAT", {
                     "default": 0.0,
@@ -102,14 +106,20 @@ class Body2COLMAP_RenderSplat:
                     "step": 1000,
                     "tooltip": "Number of points to sample from Gaussian centers for COLMAP initialization"
                 }),
+                "override_pointcloud": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "Generate new point cloud from splat (if False, preserves original from b2c_data if available)"
+                }),
             }
         }
 
     def render(self, splat_scene, path_config, width, height,
+               b2c_data=None,
                focal_length_mm=0.0, fill_ratio=0.8,
                bg_color_r=1.0, bg_color_g=1.0, bg_color_b=1.0,
                device="cuda",
-               pointcloud_samples=10000):
+               pointcloud_samples=10000,
+               override_pointcloud=False):
         """
         Render all camera positions and return batch of images + masks.
 
@@ -150,15 +160,41 @@ class Body2COLMAP_RenderSplat:
         else:
             focal_length = focal_length_mm_to_pixels(focal_length_mm, width)
 
-        # Get orbit center and auto-compute radius if needed
-        orbit_center = splat_scene.get_bbox_center()
+        # Get framing preset from path config
+        framing = path_config.get("framing", "full")
         pattern = path_config["pattern"]
         params = path_config["params"].copy()  # Don't modify original
 
+        # Try to use framing bounds from metadata (computed by mesh renderer)
+        bounds = None
+        if b2c_data and "framing_bounds" in b2c_data:
+            framing_bounds_dict = b2c_data["framing_bounds"]
+            if framing in framing_bounds_dict:
+                bounds = framing_bounds_dict[framing]
+                logger.info(f"[Body2COLMAP] Using '{framing}' framing bounds from metadata")
+            else:
+                available = list(framing_bounds_dict.keys())
+                logger.warning(
+                    f"[Body2COLMAP] Framing preset '{framing}' not in metadata. "
+                    f"Available presets: {available}. Falling back to splat scene bounds."
+                )
+
+        if bounds is None:
+            # Fall back to splat scene bounds
+            if framing != "full" and b2c_data is None:
+                logger.warning(
+                    f"[Body2COLMAP] Framing preset '{framing}' requested but no metadata provided. "
+                    "Using full splat scene bounds. Connect mesh renderer metadata to use framing."
+                )
+            bounds = splat_scene.get_bounds()
+
+        # Compute orbit center from bounds
+        orbit_center = (bounds[0] + bounds[1]) / 2.0
+
         # Auto-compute radius if not specified in path config
         if params.get("radius") is None:
-            params["radius"] = compute_smart_orbit_radius(
-                scene=splat_scene,
+            params["radius"] = compute_auto_orbit_radius(
+                bounds=bounds,
                 render_size=(width, height),
                 focal_length=focal_length,
                 fill_ratio=fill_ratio
@@ -261,21 +297,39 @@ class Body2COLMAP_RenderSplat:
         images_tensor, masks_tensor = rendered_to_comfy(rendered_images)
         logger.info(f"[Body2COLMAP] Conversion complete ({time.time() - t0:.2f}s)")
 
-        # Sample point cloud from splat scene (do this while we still have the scene!)
-        logger.info(f"[Body2COLMAP] Sampling {pointcloud_samples} points from splat scene...")
-        t0 = time.time()
-        points, colors = splat_scene.get_point_cloud(n_samples=pointcloud_samples)
-        logger.info(f"[Body2COLMAP] Point cloud sampled ({time.time() - t0:.2f}s)")
+        # Determine point cloud to use
+        if override_pointcloud or not b2c_data or "points_3d" not in b2c_data:
+            # Generate new point cloud from splat scene
+            if override_pointcloud:
+                logger.info(f"[Body2COLMAP] Generating new point cloud (override_pointcloud=True)")
+            else:
+                logger.info(f"[Body2COLMAP] No point cloud in metadata, generating from splat scene")
+
+            logger.info(f"[Body2COLMAP] Sampling {pointcloud_samples} points from splat scene...")
+            t0 = time.time()
+            points, colors = splat_scene.get_point_cloud(n_samples=pointcloud_samples)
+            logger.info(f"[Body2COLMAP] Point cloud sampled ({time.time() - t0:.2f}s)")
+        else:
+            # Preserve original point cloud from metadata
+            points, colors = b2c_data["points_3d"]
+            logger.info(
+                f"[Body2COLMAP] Using original point cloud from metadata "
+                f"({len(points)} points)"
+            )
 
         # Generate standardized filenames (1-based indexing with trailing underscore)
         image_names = [f"frame_{i+1:05d}_.png" for i in range(len(cameras))]
 
         # Package metadata for serialization (no scene object - not serializable)
-        b2c_data = {
+        b2c_output = {
             "cameras": cameras,
             "image_names": image_names,
             "points_3d": (points, colors),
             "resolution": (width, height),
         }
 
-        return (images_tensor, masks_tensor, b2c_data)
+        # Pass through framing bounds if they were provided in input metadata
+        if b2c_data and "framing_bounds" in b2c_data:
+            b2c_output["framing_bounds"] = b2c_data["framing_bounds"]
+
+        return (images_tensor, masks_tensor, b2c_output)

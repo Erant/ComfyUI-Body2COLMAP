@@ -7,10 +7,9 @@ import comfy.utils
 from body2colmap.renderer import Renderer
 from body2colmap.path import OrbitPath
 from body2colmap.camera import Camera
-from body2colmap.utils import compute_default_focal_length
+from body2colmap.utils import compute_default_focal_length, compute_auto_orbit_radius
 from ..core.sam3d_adapter import sam3d_output_to_scene
 from ..core.comfy_utils import rendered_to_comfy
-from ..core.path_utils import compute_smart_orbit_radius
 from ..core.camera_utils import focal_length_mm_to_pixels
 
 logger = logging.getLogger(__name__)
@@ -177,8 +176,12 @@ class Body2COLMAP_Render:
             masks: Tensor of shape [N, H, W] in [0,1] range (alpha channel)
             b2c_data: B2C_COLMAP_METADATA with cameras, point cloud, and image names
         """
-        # Convert SAM3D output to Scene (with skeleton for skeleton modes)
-        include_skeleton = "skeleton" in render_mode
+        # Get framing preset from path config
+        framing = path_config.get("framing", "full")
+
+        # Convert SAM3D output to Scene
+        # Always load skeleton if available to compute all framing bounds for metadata
+        include_skeleton = True
         logger.info("[Body2COLMAP] Converting SAM3D output to scene...")
         t0 = time.time()
         scene = sam3d_output_to_scene(mesh_data, include_skeleton=include_skeleton)
@@ -192,15 +195,44 @@ class Body2COLMAP_Render:
         else:
             focal_length = focal_length_mm_to_pixels(focal_length_mm, width)
 
-        # Get orbit center and auto-compute radius if needed
-        orbit_center = scene.get_bbox_center()
+        # Compute ALL framing bounds for metadata (allows splat renderer to choose later)
+        logger.info("[Body2COLMAP] Computing framing bounds for all presets...")
+        all_framing_bounds = {}
+
+        # Always compute full bounds
+        all_framing_bounds["full"] = scene.get_bounds()
+
+        # Compute partial framing bounds if skeleton is available
+        if scene.skeleton_joints is not None:
+            for preset in ["torso", "bust", "head"]:
+                try:
+                    all_framing_bounds[preset] = scene.get_framing_bounds(preset=preset)
+                except (ValueError, AttributeError) as e:
+                    logger.warning(f"[Body2COLMAP] Could not compute {preset} framing bounds: {e}")
+        else:
+            logger.info("[Body2COLMAP] No skeleton data - only 'full' framing available")
+
+        # Get bounds for the selected framing preset
         pattern = path_config["pattern"]
         params = path_config["params"].copy()  # Don't modify original
 
+        if framing in all_framing_bounds:
+            if framing != "full":
+                logger.info(f"[Body2COLMAP] Using framing preset: {framing}")
+            current_bounds = all_framing_bounds[framing]
+        else:
+            logger.warning(
+                f"[Body2COLMAP] Framing preset '{framing}' not available, falling back to 'full'"
+            )
+            current_bounds = all_framing_bounds["full"]
+
+        # Compute orbit center from selected framing bounds
+        orbit_center = (current_bounds[0] + current_bounds[1]) / 2.0
+
         # Auto-compute radius if not specified in path config
         if params.get("radius") is None:
-            params["radius"] = compute_smart_orbit_radius(
-                scene=scene,
+            params["radius"] = compute_auto_orbit_radius(
+                bounds=current_bounds,
                 render_size=(width, height),
                 focal_length=focal_length,
                 fill_ratio=fill_ratio
@@ -356,6 +388,7 @@ class Body2COLMAP_Render:
             "image_names": image_names,
             "points_3d": (points, colors),
             "resolution": (width, height),
+            "framing_bounds": all_framing_bounds,  # Dict of all computed framing bounds
         }
 
         return (images_tensor, masks_tensor, b2c_data)

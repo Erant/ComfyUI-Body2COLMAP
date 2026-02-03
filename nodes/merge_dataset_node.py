@@ -42,15 +42,10 @@ class Body2COLMAP_MergeDatasets:
                     "tooltip": "Number of points to sample (only used when pointcloud_mode=resample)"
                 }),
             },
-            "optional": {
-                "reference_image": ("IMAGE", {
-                    "tooltip": "Optional reference image for the merged dataset"
-                }),
-            }
         }
 
     def merge(self, b2c_data_1, images_1, masks_1, pointcloud_mode="first",
-              pointcloud_samples=10000, reference_image=None, **kwargs):
+              pointcloud_samples=10000, **kwargs):
         """
         Merge multiple datasets into a single dataset.
 
@@ -63,7 +58,6 @@ class Body2COLMAP_MergeDatasets:
             masks_1: First dataset masks
             pointcloud_mode: How to combine point clouds
             pointcloud_samples: Number of points for resampling
-            reference_image: Optional reference image (not used in merge, just for SaveDataset)
             **kwargs: Additional datasets (b2c_data_2, images_2, masks_2, etc.)
 
         Returns:
