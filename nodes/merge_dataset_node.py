@@ -20,6 +20,12 @@ class Body2COLMAP_MergeDatasets:
         "Concatenated masks from all datasets"
     )
 
+    # Tell ComfyUI to collect all batch outputs into lists
+    INPUT_IS_LIST = {
+        "images_1": True,
+        "masks_1": True,
+    }
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -41,11 +47,15 @@ class Body2COLMAP_MergeDatasets:
                     "step": 1000,
                     "tooltip": "Number of points to sample (only used when pointcloud_mode=resample)"
                 }),
+                "merge_batches": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "Merge batched inputs into single dataset (enable when loading with batch_size > 0)"
+                }),
             },
         }
 
     def merge(self, b2c_data_1, images_1, masks_1, pointcloud_mode="first",
-              pointcloud_samples=10000, **kwargs):
+              pointcloud_samples=10000, merge_batches=False, **kwargs):
         """
         Merge multiple datasets into a single dataset.
 
@@ -54,10 +64,11 @@ class Body2COLMAP_MergeDatasets:
 
         Args:
             b2c_data_1: First dataset metadata
-            images_1: First dataset images
-            masks_1: First dataset masks
+            images_1: First dataset images or List[IMAGE] when batched
+            masks_1: First dataset masks or List[MASK] when batched
             pointcloud_mode: How to combine point clouds
             pointcloud_samples: Number of points for resampling
+            merge_batches: If True, merge batched inputs into single dataset
             **kwargs: Additional datasets (b2c_data_2, images_2, masks_2, etc.)
 
         Returns:
@@ -65,6 +76,49 @@ class Body2COLMAP_MergeDatasets:
             merged_images: Concatenated images
             merged_masks: Concatenated masks
         """
+        # Unwrap scalar parameters if they come as lists (happens when INPUT_IS_LIST is set)
+        # When INPUT_IS_LIST is present, ComfyUI passes all inputs as lists in batched contexts
+        if isinstance(b2c_data_1, list):
+            b2c_data_1 = b2c_data_1[0]
+        if isinstance(pointcloud_mode, list):
+            pointcloud_mode = pointcloud_mode[0]
+        if isinstance(pointcloud_samples, list):
+            pointcloud_samples = pointcloud_samples[0]
+        if isinstance(merge_batches, list):
+            merge_batches = merge_batches[0]
+
+        # Handle batch merging for first dataset
+        if merge_batches:
+            # Concatenate all batches into single tensor
+            if isinstance(images_1, list) and len(images_1) > 1:
+                images_1 = torch.cat(images_1, dim=0)
+                logger.info(f"[Body2COLMAP] Merged {len(images_1)} image batches for dataset 1")
+            elif isinstance(images_1, list):
+                images_1 = images_1[0]  # Single batch
+
+            if isinstance(masks_1, list) and len(masks_1) > 1:
+                masks_1 = torch.cat(masks_1, dim=0)
+                logger.info(f"[Body2COLMAP] Merged {len(masks_1)} mask batches for dataset 1")
+            elif isinstance(masks_1, list):
+                masks_1 = masks_1[0]  # Single batch
+        else:
+            # Extract single batch (backward compatible)
+            if isinstance(images_1, list):
+                if len(images_1) > 1:
+                    raise ValueError(
+                        f"Received {len(images_1)} batches but merge_batches=False. "
+                        "Enable merge_batches or disable batching in Load Dataset (set batch_size=0)"
+                    )
+                images_1 = images_1[0]
+
+            if isinstance(masks_1, list):
+                if len(masks_1) > 1:
+                    raise ValueError(
+                        f"Received {len(masks_1)} mask batches but merge_batches=False. "
+                        "Enable merge_batches or disable batching in Load Dataset (set batch_size=0)"
+                    )
+                masks_1 = masks_1[0]
+
         # Collect all datasets
         datasets = [(b2c_data_1, images_1, masks_1)]
 
@@ -73,6 +127,42 @@ class Body2COLMAP_MergeDatasets:
             b2c_data = kwargs[f"b2c_data_{i}"]
             images = kwargs[f"images_{i}"]
             masks = kwargs[f"masks_{i}"]
+
+            # Unwrap b2c_data if it comes as list
+            if isinstance(b2c_data, list):
+                b2c_data = b2c_data[0]
+
+            # Handle batch merging for additional datasets
+            if merge_batches:
+                if isinstance(images, list) and len(images) > 1:
+                    images = torch.cat(images, dim=0)
+                    logger.info(f"[Body2COLMAP] Merged {len(images)} image batches for dataset {i}")
+                elif isinstance(images, list):
+                    images = images[0]
+
+                if isinstance(masks, list) and len(masks) > 1:
+                    masks = torch.cat(masks, dim=0)
+                    logger.info(f"[Body2COLMAP] Merged {len(masks)} mask batches for dataset {i}")
+                elif isinstance(masks, list):
+                    masks = masks[0]
+            else:
+                # Extract single batch
+                if isinstance(images, list):
+                    if len(images) > 1:
+                        raise ValueError(
+                            f"Received {len(images)} batches for dataset {i} but merge_batches=False. "
+                            "Enable merge_batches or disable batching in Load Dataset (set batch_size=0)"
+                        )
+                    images = images[0]
+
+                if isinstance(masks, list):
+                    if len(masks) > 1:
+                        raise ValueError(
+                            f"Received {len(masks)} mask batches for dataset {i} but merge_batches=False. "
+                            "Enable merge_batches or disable batching in Load Dataset (set batch_size=0)"
+                        )
+                    masks = masks[0]
+
             datasets.append((b2c_data, images, masks))
             i += 1
 
