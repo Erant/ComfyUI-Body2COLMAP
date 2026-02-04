@@ -145,6 +145,19 @@ class Body2COLMAP_SaveDataset:
         Returns:
             Absolute path to created directory
         """
+        # Unwrap scalar parameters if they come as lists (happens when INPUT_IS_LIST is set)
+        # When INPUT_IS_LIST is present, ComfyUI passes all inputs as lists in batched contexts
+        if isinstance(b2c_data, list):
+            b2c_data = b2c_data[0]
+        if isinstance(output_directory, list):
+            output_directory = output_directory[0]
+        if isinstance(auto_increment, list):
+            auto_increment = auto_increment[0]
+        if isinstance(merge_batches, list):
+            merge_batches = merge_batches[0]
+        if reference_image is not None and isinstance(reference_image, list):
+            reference_image = reference_image[0]
+
         # Handle batch merging
         if merge_batches:
             # Concatenate all batches into single tensor
