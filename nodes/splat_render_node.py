@@ -110,6 +110,22 @@ class Body2COLMAP_RenderSplat:
                     "default": False,
                     "tooltip": "Generate new point cloud from splat (if False, preserves original from b2c_data if available)"
                 }),
+
+                # Mask thresholding
+                "enable_mask_threshold": ("BOOLEAN", {
+                    "default": False,
+                    "label_on": "enabled",
+                    "label_off": "disabled",
+                    "tooltip": "Convert continuous mask values (0-1) to binary (0 or 1) using threshold"
+                }),
+                "mask_threshold": ("FLOAT", {
+                    "default": 0.5,
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "display": "slider",
+                    "tooltip": "Threshold value for mask binarization (values >= threshold become 1.0)"
+                }),
             }
         }
 
@@ -119,7 +135,9 @@ class Body2COLMAP_RenderSplat:
                bg_color_r=1.0, bg_color_g=1.0, bg_color_b=1.0,
                device="cuda",
                pointcloud_samples=10000,
-               override_pointcloud=False):
+               override_pointcloud=False,
+               enable_mask_threshold=False,
+               mask_threshold=0.5):
         """
         Render all camera positions and return batch of images + masks.
 
@@ -296,6 +314,11 @@ class Body2COLMAP_RenderSplat:
         t0 = time.time()
         images_tensor, masks_tensor = rendered_to_comfy(rendered_images)
         logger.info(f"[Body2COLMAP] Conversion complete ({time.time() - t0:.2f}s)")
+
+        # Apply mask thresholding if enabled
+        if enable_mask_threshold:
+            masks_tensor = (masks_tensor >= mask_threshold).float()
+            logger.info(f"[Body2COLMAP] Applied mask threshold: {mask_threshold}")
 
         # Determine point cloud to use
         if override_pointcloud or not b2c_data or "points_3d" not in b2c_data:
