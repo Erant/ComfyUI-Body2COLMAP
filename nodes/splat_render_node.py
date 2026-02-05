@@ -3,6 +3,7 @@
 import logging
 import time
 
+import torch
 import comfy.utils
 from body2colmap.path import OrbitPath
 from body2colmap.camera import Camera
@@ -126,6 +127,12 @@ class Body2COLMAP_RenderSplat:
                     "display": "slider",
                     "tooltip": "Threshold value for mask binarization (values >= threshold become 1.0)"
                 }),
+                "apply_threshold_mask": ("BOOLEAN", {
+                    "default": False,
+                    "label_on": "enabled",
+                    "label_off": "disabled",
+                    "tooltip": "Apply mask to image, setting masked areas to background color"
+                }),
             }
         }
 
@@ -137,7 +144,8 @@ class Body2COLMAP_RenderSplat:
                pointcloud_samples=10000,
                override_pointcloud=False,
                enable_mask_threshold=False,
-               mask_threshold=0.5):
+               mask_threshold=0.5,
+               apply_threshold_mask=False):
         """
         Render all camera positions and return batch of images + masks.
 
@@ -319,6 +327,20 @@ class Body2COLMAP_RenderSplat:
         if enable_mask_threshold:
             masks_tensor = (masks_tensor >= mask_threshold).float()
             logger.info(f"[Body2COLMAP] Applied mask threshold: {mask_threshold}")
+
+        # Apply mask to image if enabled
+        if apply_threshold_mask:
+            # Expand mask from [B, H, W] to [B, H, W, 1] for broadcasting
+            mask_expanded = masks_tensor.unsqueeze(-1)
+            # Create background color tensor [3] matching device and dtype
+            bg_color_tensor = torch.tensor(
+                [bg_color_r, bg_color_g, bg_color_b],
+                device=images_tensor.device,
+                dtype=images_tensor.dtype
+            )
+            # Apply mask: where mask=1.0 use bg_color, where mask=0.0 keep image
+            images_tensor = images_tensor * (1.0 - mask_expanded) + bg_color_tensor * mask_expanded
+            logger.info("[Body2COLMAP] Applied mask to image with background color")
 
         # Determine point cloud to use
         if override_pointcloud or not b2c_data or "points_3d" not in b2c_data:
