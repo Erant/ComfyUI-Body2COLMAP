@@ -31,7 +31,6 @@ class Body2COLMAP_RenderSplat:
         return {
             "required": {
                 "splat_scene": ("SPLAT_SCENE",),
-                "path_config": ("B2C_PATH_CONFIG",),
                 "width": ("INT", {
                     "default": 720,
                     "min": 1,
@@ -48,9 +47,14 @@ class Body2COLMAP_RenderSplat:
                 }),
             },
             "optional": {
-                # Metadata from mesh renderer (for consistent framing)
+                # Camera path configuration (optional if b2c_data provides cameras)
+                "path_config": ("B2C_PATH_CONFIG", {
+                    "tooltip": "Camera path from path generator. If not connected, cameras from b2c_data are reused."
+                }),
+
+                # Metadata from mesh renderer (for consistent framing or camera reuse)
                 "b2c_data": ("B2C_COLMAP_METADATA", {
-                    "tooltip": "Optional metadata from mesh renderer to use same framing bounds"
+                    "tooltip": "Metadata from a previous render. Used for framing bounds, or to reuse exact camera positions when path_config is not connected."
                 }),
 
                 # Camera parameters
@@ -113,8 +117,8 @@ class Body2COLMAP_RenderSplat:
             }
         }
 
-    def render(self, splat_scene, path_config, width, height,
-               b2c_data=None,
+    def render(self, splat_scene, width, height,
+               path_config=None, b2c_data=None,
                focal_length_mm=0.0, fill_ratio=0.8,
                bg_color_r=1.0, bg_color_g=1.0, bg_color_b=1.0,
                device="cuda",
@@ -125,9 +129,10 @@ class Body2COLMAP_RenderSplat:
 
         Args:
             splat_scene: SplatScene object from LoadSplat node
-            path_config: B2C_PATH_CONFIG from path generator node
             width: Image width in pixels
             height: Image height in pixels
+            path_config: B2C_PATH_CONFIG from path generator node (optional if b2c_data has cameras)
+            b2c_data: Optional metadata; used for framing bounds or camera reuse
             focal_length_mm: Focal length in mm (0=auto)
             fill_ratio: Viewport fill ratio for auto-radius
             bg_color_r/g/b: Background color RGB components
@@ -148,104 +153,31 @@ class Body2COLMAP_RenderSplat:
                 "pip install body2colmap[splat]"
             ) from e
 
+        # Validate inputs: need either path_config or cameras in b2c_data
+        if path_config is None and (b2c_data is None or "cameras" not in b2c_data):
+            raise ValueError(
+                "Either path_config or b2c_data (with cameras) must be provided. "
+                "Connect a path generator node, or connect b2c_data from a previous render "
+                "to reuse its camera positions."
+            )
+
         logger.info(
             f"[Body2COLMAP] Rendering splat scene: "
             f"{len(splat_scene)} Gaussians, SH degree {splat_scene.sh_degree}"
         )
 
-        # Determine focal length in pixels
-        if focal_length_mm <= 0:
-            # Auto-compute default (~43mm equivalent, ~47° FOV)
-            focal_length = compute_default_focal_length(width)
-        else:
-            focal_length = focal_length_mm_to_pixels(focal_length_mm, width)
-
-        # Get framing preset from path config
-        framing = path_config.get("framing", "full")
-        pattern = path_config["pattern"]
-        params = path_config["params"].copy()  # Don't modify original
-
-        # Try to use framing bounds from metadata (computed by mesh renderer)
-        bounds = None
-        if b2c_data and "framing_bounds" in b2c_data:
-            framing_bounds_dict = b2c_data["framing_bounds"]
-            if framing in framing_bounds_dict:
-                bounds = framing_bounds_dict[framing]
-                logger.info(f"[Body2COLMAP] Using '{framing}' framing bounds from metadata")
-            else:
-                available = list(framing_bounds_dict.keys())
-                logger.warning(
-                    f"[Body2COLMAP] Framing preset '{framing}' not in metadata. "
-                    f"Available presets: {available}. Falling back to splat scene bounds."
-                )
-
-        if bounds is None:
-            # Fall back to splat scene bounds
-            if framing != "full" and b2c_data is None:
-                logger.warning(
-                    f"[Body2COLMAP] Framing preset '{framing}' requested but no metadata provided. "
-                    "Using full splat scene bounds. Connect mesh renderer metadata to use framing."
-                )
-            bounds = splat_scene.get_bounds()
-
-        # Compute orbit center from bounds
-        orbit_center = (bounds[0] + bounds[1]) / 2.0
-
-        # Auto-compute radius if not specified in path config
-        if params.get("radius") is None:
-            params["radius"] = compute_auto_orbit_radius(
-                bounds=bounds,
-                render_size=(width, height),
-                focal_length=focal_length,
-                fill_ratio=fill_ratio
-            )
-
-        # Create camera template
-        camera_template = Camera(
-            focal_length=(focal_length, focal_length),
-            image_size=(width, height)
-        )
-
-        # Create OrbitPath and generate cameras based on pattern
-        logger.info(
-            f"[Body2COLMAP] Creating camera path: {pattern} "
-            f"with radius={params['radius']:.3f}"
-        )
-        t0 = time.time()
-        path_gen = OrbitPath(target=orbit_center, radius=params["radius"])
-
-        if pattern == "circular":
-            cameras = path_gen.circular(
-                n_frames=params["n_frames"],
-                elevation_deg=params["elevation_deg"],
-                start_azimuth_deg=params.get("start_azimuth_deg", 0.0),
-                camera_template=camera_template
-            )
-        elif pattern == "sinusoidal":
-            cameras = path_gen.sinusoidal(
-                n_frames=params["n_frames"],
-                amplitude_deg=params["amplitude_deg"],
-                n_cycles=params["n_cycles"],
-                start_azimuth_deg=params.get("start_azimuth_deg", 0.0),
-                camera_template=camera_template
-            )
-        elif pattern == "helical":
-            cameras = path_gen.helical(
-                n_frames=params["n_frames"],
-                n_loops=params["n_loops"],
-                amplitude_deg=params["amplitude_deg"],
-                lead_in_deg=params.get("lead_in_deg", 45.0),
-                lead_out_deg=params.get("lead_out_deg", 45.0),
-                start_azimuth_deg=params.get("start_azimuth_deg", 0.0),
-                camera_template=camera_template
+        if path_config is not None:
+            # Generate cameras from path configuration
+            cameras = self._cameras_from_path(
+                path_config, b2c_data, splat_scene,
+                width, height, focal_length_mm, fill_ratio
             )
         else:
-            raise ValueError(f"Unknown path pattern: {pattern}")
-
-        logger.info(
-            f"[Body2COLMAP] Camera path created: {len(cameras)} cameras "
-            f"({time.time() - t0:.2f}s)"
-        )
+            # Reuse cameras from b2c_data
+            cameras = b2c_data["cameras"]
+            logger.info(
+                f"[Body2COLMAP] Reusing {len(cameras)} cameras from b2c_data"
+            )
 
         # Prepare background color
         bg_color = (bg_color_r, bg_color_g, bg_color_b)
@@ -333,3 +265,99 @@ class Body2COLMAP_RenderSplat:
             b2c_output["framing_bounds"] = b2c_data["framing_bounds"]
 
         return (images_tensor, masks_tensor, b2c_output)
+
+    def _cameras_from_path(self, path_config, b2c_data, splat_scene,
+                           width, height, focal_length_mm, fill_ratio):
+        """Generate cameras from a path configuration."""
+        # Determine focal length in pixels
+        if focal_length_mm <= 0:
+            focal_length = compute_default_focal_length(width)
+        else:
+            focal_length = focal_length_mm_to_pixels(focal_length_mm, width)
+
+        # Get framing preset from path config
+        framing = path_config.get("framing", "full")
+        pattern = path_config["pattern"]
+        params = path_config["params"].copy()  # Don't modify original
+
+        # Try to use framing bounds from metadata (computed by mesh renderer)
+        bounds = None
+        if b2c_data and "framing_bounds" in b2c_data:
+            framing_bounds_dict = b2c_data["framing_bounds"]
+            if framing in framing_bounds_dict:
+                bounds = framing_bounds_dict[framing]
+                logger.info(f"[Body2COLMAP] Using '{framing}' framing bounds from metadata")
+            else:
+                available = list(framing_bounds_dict.keys())
+                logger.warning(
+                    f"[Body2COLMAP] Framing preset '{framing}' not in metadata. "
+                    f"Available presets: {available}. Falling back to splat scene bounds."
+                )
+
+        if bounds is None:
+            if framing != "full" and b2c_data is None:
+                logger.warning(
+                    f"[Body2COLMAP] Framing preset '{framing}' requested but no metadata provided. "
+                    "Using full splat scene bounds. Connect mesh renderer metadata to use framing."
+                )
+            bounds = splat_scene.get_bounds()
+
+        # Compute orbit center from bounds
+        orbit_center = (bounds[0] + bounds[1]) / 2.0
+
+        # Auto-compute radius if not specified in path config
+        if params.get("radius") is None:
+            params["radius"] = compute_auto_orbit_radius(
+                bounds=bounds,
+                render_size=(width, height),
+                focal_length=focal_length,
+                fill_ratio=fill_ratio
+            )
+
+        # Create camera template
+        camera_template = Camera(
+            focal_length=(focal_length, focal_length),
+            image_size=(width, height)
+        )
+
+        # Create OrbitPath and generate cameras based on pattern
+        logger.info(
+            f"[Body2COLMAP] Creating camera path: {pattern} "
+            f"with radius={params['radius']:.3f}"
+        )
+        t0 = time.time()
+        path_gen = OrbitPath(target=orbit_center, radius=params["radius"])
+
+        if pattern == "circular":
+            cameras = path_gen.circular(
+                n_frames=params["n_frames"],
+                elevation_deg=params["elevation_deg"],
+                start_azimuth_deg=params.get("start_azimuth_deg", 0.0),
+                camera_template=camera_template
+            )
+        elif pattern == "sinusoidal":
+            cameras = path_gen.sinusoidal(
+                n_frames=params["n_frames"],
+                amplitude_deg=params["amplitude_deg"],
+                n_cycles=params["n_cycles"],
+                start_azimuth_deg=params.get("start_azimuth_deg", 0.0),
+                camera_template=camera_template
+            )
+        elif pattern == "helical":
+            cameras = path_gen.helical(
+                n_frames=params["n_frames"],
+                n_loops=params["n_loops"],
+                amplitude_deg=params["amplitude_deg"],
+                lead_in_deg=params.get("lead_in_deg", 45.0),
+                lead_out_deg=params.get("lead_out_deg", 45.0),
+                start_azimuth_deg=params.get("start_azimuth_deg", 0.0),
+                camera_template=camera_template
+            )
+        else:
+            raise ValueError(f"Unknown path pattern: {pattern}")
+
+        logger.info(
+            f"[Body2COLMAP] Camera path created: {len(cameras)} cameras "
+            f"({time.time() - t0:.2f}s)"
+        )
+        return cameras
