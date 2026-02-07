@@ -34,6 +34,12 @@ class Body2COLMAP_RunBrush:
         "Updated B2C metadata with splat reference (use Save Dataset to persist)"
     )
 
+    # Tell ComfyUI to collect all batch outputs into lists
+    INPUT_IS_LIST = {
+        "images": True,
+        "masks": True,
+    }
+
     @classmethod
     def IS_CHANGED(cls, **kwargs):
         # Always re-execute training (never use cached results)
@@ -65,6 +71,10 @@ class Body2COLMAP_RunBrush:
                     "min": 0,
                     "max": 4,
                     "tooltip": "Spherical harmonics degree"
+                }),
+                "merge_batches": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "Merge batched inputs into single dataset (enable when loading with batch_size > 0)"
                 }),
             },
             "optional": {
@@ -114,6 +124,7 @@ class Body2COLMAP_RunBrush:
         brush_path,
         total_steps,
         sh_degree,
+        merge_batches=False,
         masks=None,
         unload_models=True,
         with_viewer=False,
@@ -127,11 +138,12 @@ class Body2COLMAP_RunBrush:
 
         Args:
             b2c_data: B2C_COLMAP_METADATA with cameras, image_names, points_3d
-            images: ComfyUI IMAGE tensor
+            images: ComfyUI IMAGE tensor or List[IMAGE] when batched
             brush_path: Path to brush executable
             total_steps: Number of training iterations
             sh_degree: Spherical harmonics degree
-            masks: Optional MASK tensor for alpha channel
+            merge_batches: If True, merge batched inputs into single dataset
+            masks: Optional MASK tensor or List[MASK] when batched
             unload_models: Unload ComfyUI models before training
             with_viewer: Spawn viewer during training
             max_resolution: Maximum image resolution
@@ -142,6 +154,63 @@ class Body2COLMAP_RunBrush:
         Returns:
             Tuple of (splat_scene, updated_b2c_data)
         """
+        # Unwrap scalar parameters if they come as lists (happens when INPUT_IS_LIST is set)
+        # When INPUT_IS_LIST is present, ComfyUI passes all inputs as lists in batched contexts
+        if isinstance(b2c_data, list):
+            b2c_data = b2c_data[0]
+        if isinstance(brush_path, list):
+            brush_path = brush_path[0]
+        if isinstance(total_steps, list):
+            total_steps = total_steps[0]
+        if isinstance(sh_degree, list):
+            sh_degree = sh_degree[0]
+        if isinstance(merge_batches, list):
+            merge_batches = merge_batches[0]
+        if isinstance(unload_models, list):
+            unload_models = unload_models[0]
+        if isinstance(with_viewer, list):
+            with_viewer = with_viewer[0]
+        if isinstance(max_resolution, list):
+            max_resolution = max_resolution[0]
+        if isinstance(max_splats, list):
+            max_splats = max_splats[0]
+        if isinstance(refine_every, list):
+            refine_every = refine_every[0]
+        if isinstance(alpha_mode, list):
+            alpha_mode = alpha_mode[0]
+
+        # Handle batch merging
+        if merge_batches:
+            # Concatenate all batches into single tensor
+            if isinstance(images, list) and len(images) > 1:
+                images = torch.cat(images, dim=0)
+                logger.info(f"[Body2COLMAP] Merged {len(images)} image batches")
+            elif isinstance(images, list):
+                images = images[0]  # Single batch
+
+            if masks is not None:
+                if isinstance(masks, list) and len(masks) > 1:
+                    masks = torch.cat(masks, dim=0)
+                    logger.info(f"[Body2COLMAP] Merged {len(masks)} mask batches")
+                elif isinstance(masks, list):
+                    masks = masks[0]  # Single batch
+        else:
+            # Extract single batch (backward compatible)
+            if isinstance(images, list):
+                if len(images) > 1:
+                    raise ValueError(
+                        f"Received {len(images)} batches but merge_batches=False. "
+                        "Enable merge_batches or disable batching in Load Dataset (set batch_size=0)"
+                    )
+                images = images[0]
+
+            if masks is not None and isinstance(masks, list):
+                if len(masks) > 1:
+                    raise ValueError(
+                        f"Received {len(masks)} mask batches but merge_batches=False. "
+                        "Enable merge_batches or disable batching in Load Dataset (set batch_size=0)"
+                    )
+                masks = masks[0]
 
         # 1. Create temporary directory for brush output (persists after function returns)
         timestamp = int(time.time() * 1000)  # milliseconds for uniqueness

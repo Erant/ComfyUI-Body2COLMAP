@@ -4,6 +4,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 import re
+import torch
 from body2colmap.exporter import ColmapExporter
 from ..core.comfy_utils import comfy_to_cv2
 
@@ -54,6 +55,12 @@ class Body2COLMAP_ExportCOLMAP:
     OUTPUT_NODE = True  # Terminal node - produces file output
     OUTPUT_TOOLTIPS = ("Path to the output directory containing COLMAP files",)
 
+    # Tell ComfyUI to collect all batch outputs into lists
+    INPUT_IS_LIST = {
+        "images": True,
+        "masks": True,
+    }
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -67,6 +74,10 @@ class Body2COLMAP_ExportCOLMAP:
                     "default": True,
                     "tooltip": "Auto-number directories (colmap_00001, colmap_00002, etc.)"
                 }),
+                "merge_batches": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "Merge batched inputs into single dataset (enable when loading with batch_size > 0)"
+                }),
             },
             "optional": {
                 "images": ("IMAGE",),
@@ -74,7 +85,7 @@ class Body2COLMAP_ExportCOLMAP:
             }
         }
 
-    def export(self, b2c_data, output_directory, auto_increment=True, images=None, masks=None):
+    def export(self, b2c_data, output_directory, auto_increment=True, merge_batches=False, images=None, masks=None):
         """
         Export COLMAP format files.
 
@@ -92,12 +103,56 @@ class Body2COLMAP_ExportCOLMAP:
             b2c_data: B2C_COLMAP_METADATA from render nodes or LoadDataset
             output_directory: Base directory name (in output folder)
             auto_increment: If True, create numbered directories (colmap_00001, etc.)
-            images: Optional ComfyUI IMAGE tensor to save alongside COLMAP files
-            masks: Optional ComfyUI MASK tensor for alpha channel
+            merge_batches: If True, merge batched inputs into single dataset
+            images: Optional ComfyUI IMAGE tensor or List[IMAGE] when batched
+            masks: Optional ComfyUI MASK tensor or List[MASK] when batched
 
         Note:
             Point cloud must be pre-sampled in render nodes and included in b2c_data.
         """
+        # Unwrap scalar parameters if they come as lists (happens when INPUT_IS_LIST is set)
+        # When INPUT_IS_LIST is present, ComfyUI passes all inputs as lists in batched contexts
+        if isinstance(b2c_data, list):
+            b2c_data = b2c_data[0]
+        if isinstance(output_directory, list):
+            output_directory = output_directory[0]
+        if isinstance(auto_increment, list):
+            auto_increment = auto_increment[0]
+        if isinstance(merge_batches, list):
+            merge_batches = merge_batches[0]
+
+        # Handle batch merging
+        if merge_batches:
+            # Concatenate all batches into single tensor
+            if images is not None:
+                if isinstance(images, list) and len(images) > 1:
+                    images = torch.cat(images, dim=0)
+                elif isinstance(images, list):
+                    images = images[0]  # Single batch
+
+            if masks is not None:
+                if isinstance(masks, list) and len(masks) > 1:
+                    masks = torch.cat(masks, dim=0)
+                elif isinstance(masks, list):
+                    masks = masks[0]  # Single batch
+        else:
+            # Extract single batch (backward compatible)
+            if images is not None and isinstance(images, list):
+                if len(images) > 1:
+                    raise ValueError(
+                        f"Received {len(images)} batches but merge_batches=False. "
+                        "Enable merge_batches or disable batching in Load Dataset (set batch_size=0)"
+                    )
+                images = images[0]
+
+            if masks is not None and isinstance(masks, list):
+                if len(masks) > 1:
+                    raise ValueError(
+                        f"Received {len(masks)} mask batches but merge_batches=False. "
+                        "Enable merge_batches or disable batching in Load Dataset (set batch_size=0)"
+                    )
+                masks = masks[0]
+
         # Extract data from b2c_data
         cameras = b2c_data["cameras"]
         image_names = b2c_data["image_names"]

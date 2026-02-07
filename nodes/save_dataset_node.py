@@ -6,6 +6,7 @@ import shutil
 from pathlib import Path
 import numpy as np
 import cv2
+import torch
 
 from ..core.comfy_utils import comfy_to_cv2
 
@@ -84,6 +85,12 @@ class Body2COLMAP_SaveDataset:
     OUTPUT_NODE = True
     OUTPUT_TOOLTIPS = ("Path to the saved dataset directory",)
 
+    # Tell ComfyUI to collect all batch outputs into lists
+    INPUT_IS_LIST = {
+        "images": True,
+        "masks": True,
+    }
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -98,6 +105,10 @@ class Body2COLMAP_SaveDataset:
                     "default": True,
                     "tooltip": "Auto-number directories (dataset_00001, dataset_00002, etc.)"
                 }),
+                "merge_batches": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "Merge batched inputs into single dataset (enable when loading with batch_size > 0)"
+                }),
             },
             "optional": {
                 "masks": ("MASK",),
@@ -107,7 +118,7 @@ class Body2COLMAP_SaveDataset:
             }
         }
 
-    def save(self, b2c_data, images, output_directory, auto_increment=True, masks=None, reference_image=None):
+    def save(self, b2c_data, images, output_directory, auto_increment=True, merge_batches=False, masks=None, reference_image=None):
         """
         Save Body2COLMAP dataset to disk.
 
@@ -124,15 +135,62 @@ class Body2COLMAP_SaveDataset:
 
         Args:
             b2c_data: B2C_COLMAP_METADATA from render nodes
-            images: ComfyUI IMAGE tensor
+            images: ComfyUI IMAGE tensor or List[IMAGE] when batched
             output_directory: Base directory name (in output folder)
             auto_increment: If True, create numbered directories (dataset_00001, etc.)
-            masks: Optional ComfyUI MASK tensor
+            merge_batches: If True, merge batched inputs into single dataset
+            masks: Optional ComfyUI MASK tensor or List[MASK] when batched
             reference_image: Optional reference image for preview
 
         Returns:
             Absolute path to created directory
         """
+        # Unwrap scalar parameters if they come as lists (happens when INPUT_IS_LIST is set)
+        # When INPUT_IS_LIST is present, ComfyUI passes all inputs as lists in batched contexts
+        if isinstance(b2c_data, list):
+            b2c_data = b2c_data[0]
+        if isinstance(output_directory, list):
+            output_directory = output_directory[0]
+        if isinstance(auto_increment, list):
+            auto_increment = auto_increment[0]
+        if isinstance(merge_batches, list):
+            merge_batches = merge_batches[0]
+        if reference_image is not None and isinstance(reference_image, list):
+            reference_image = reference_image[0]
+
+        # Handle batch merging
+        if merge_batches:
+            # Concatenate all batches into single tensor
+            if isinstance(images, list) and len(images) > 1:
+                images = torch.cat(images, dim=0)
+                logger.info(f"[Body2COLMAP] Merged {len(images)} image batches")
+            elif isinstance(images, list):
+                images = images[0]  # Single batch
+
+            if masks is not None:
+                if isinstance(masks, list) and len(masks) > 1:
+                    masks = torch.cat(masks, dim=0)
+                    logger.info(f"[Body2COLMAP] Merged {len(masks)} mask batches")
+                elif isinstance(masks, list):
+                    masks = masks[0]  # Single batch
+        else:
+            # Extract single batch (backward compatible)
+            if isinstance(images, list):
+                if len(images) > 1:
+                    raise ValueError(
+                        f"Received {len(images)} batches but merge_batches=False. "
+                        "Enable merge_batches or disable batching in Load Dataset (set batch_size=0)"
+                    )
+                images = images[0]
+
+            if masks is not None and isinstance(masks, list):
+                if len(masks) > 1:
+                    raise ValueError(
+                        f"Received {len(masks)} mask batches but merge_batches=False. "
+                        "Enable merge_batches or disable batching in Load Dataset (set batch_size=0)"
+                    )
+                masks = masks[0]
+
         # Build output path
         base_path = Path("output") / output_directory
 
