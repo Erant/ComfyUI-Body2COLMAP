@@ -62,6 +62,7 @@ from .nodes.save_dataset_node import Body2COLMAP_SaveDataset
 from .nodes.load_dataset_node import Body2COLMAP_LoadDataset
 from .nodes.unpack_dataset_node import Body2COLMAP_UnpackDataset
 from .nodes.merge_dataset_node import Body2COLMAP_MergeDatasets
+from .nodes.drop_views_node import Body2COLMAP_DropViews
 from .nodes.export_node import Body2COLMAP_ExportCOLMAP
 from .nodes.brush_node import Body2COLMAP_RunBrush
 
@@ -77,6 +78,7 @@ NODE_CLASS_MAPPINGS = {
     "Body2COLMAP_LoadDataset": Body2COLMAP_LoadDataset,
     "Body2COLMAP_UnpackDataset": Body2COLMAP_UnpackDataset,
     "Body2COLMAP_MergeDatasets": Body2COLMAP_MergeDatasets,
+    "Body2COLMAP_DropViews": Body2COLMAP_DropViews,
     "Body2COLMAP_ExportCOLMAP": Body2COLMAP_ExportCOLMAP,
     "Body2COLMAP_RunBrush": Body2COLMAP_RunBrush,
 }
@@ -93,6 +95,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Body2COLMAP_LoadDataset": "📂 Load Dataset",
     "Body2COLMAP_UnpackDataset": "📦 Unpack Dataset",
     "Body2COLMAP_MergeDatasets": "🔗 Merge Datasets",
+    "Body2COLMAP_DropViews": "✂️ Drop Views",
     "Body2COLMAP_ExportCOLMAP": "📦 Export COLMAP",
     "Body2COLMAP_RunBrush": "🎨 Train Gaussian Splat (Brush)",
 }
