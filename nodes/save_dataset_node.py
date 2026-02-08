@@ -115,10 +115,15 @@ class Body2COLMAP_SaveDataset:
                 "reference_image": ("IMAGE", {
                     "tooltip": "Optional reference image saved as reference.png for preview"
                 }),
+                "prompt": ("STRING", {
+                    "default": "",
+                    "multiline": True,
+                    "tooltip": "Optional prompt text saved as prompt.txt alongside the dataset"
+                }),
             }
         }
 
-    def save(self, b2c_data, images, output_directory, auto_increment=True, merge_batches=False, masks=None, reference_image=None):
+    def save(self, b2c_data, images, output_directory, auto_increment=True, merge_batches=False, masks=None, reference_image=None, prompt=None):
         """
         Save Body2COLMAP dataset to disk.
 
@@ -141,6 +146,7 @@ class Body2COLMAP_SaveDataset:
             merge_batches: If True, merge batched inputs into single dataset
             masks: Optional ComfyUI MASK tensor or List[MASK] when batched
             reference_image: Optional reference image for preview
+            prompt: Optional prompt text to save alongside the dataset
 
         Returns:
             Absolute path to created directory
@@ -157,6 +163,8 @@ class Body2COLMAP_SaveDataset:
             merge_batches = merge_batches[0]
         if reference_image is not None and isinstance(reference_image, list):
             reference_image = reference_image[0]
+        if prompt is not None and isinstance(prompt, list):
+            prompt = prompt[0]
 
         # Handle batch merging
         if merge_batches:
@@ -256,6 +264,13 @@ class Body2COLMAP_SaveDataset:
             cv2.imwrite(str(ref_path), ref_img)
             logger.info("[Body2COLMAP] Saved reference image")
 
+        # Save prompt if provided
+        if prompt is not None and prompt.strip():
+            prompt_path = output_path / "prompt.txt"
+            with open(prompt_path, 'w', encoding='utf-8') as f:
+                f.write(prompt)
+            logger.info("[Body2COLMAP] Saved prompt text")
+
         # Serialize cameras to metadata.json
         metadata = {
             "version": "1.0",
@@ -303,6 +318,8 @@ class Body2COLMAP_SaveDataset:
         print(f"[Body2COLMAP] - {len(positions)} points")
         if reference_image is not None:
             print("[Body2COLMAP] - reference.png")
+        if prompt is not None and prompt.strip():
+            print("[Body2COLMAP] - prompt.txt")
         if metadata.get("splat_filename"):
             print("[Body2COLMAP] - splat.ply")
 
