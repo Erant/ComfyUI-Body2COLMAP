@@ -65,6 +65,7 @@ from .nodes.merge_dataset_node import Body2COLMAP_MergeDatasets
 from .nodes.drop_views_node import Body2COLMAP_DropViews
 from .nodes.export_node import Body2COLMAP_ExportCOLMAP
 from .nodes.brush_node import Body2COLMAP_RunBrush
+from .nodes.face_landmarks_node import Body2COLMAP_DetectFaceLandmarks
 
 # Node class mappings for ComfyUI
 NODE_CLASS_MAPPINGS = {
@@ -81,6 +82,7 @@ NODE_CLASS_MAPPINGS = {
     "Body2COLMAP_DropViews": Body2COLMAP_DropViews,
     "Body2COLMAP_ExportCOLMAP": Body2COLMAP_ExportCOLMAP,
     "Body2COLMAP_RunBrush": Body2COLMAP_RunBrush,
+    "Body2COLMAP_DetectFaceLandmarks": Body2COLMAP_DetectFaceLandmarks,
 }
 
 # Display names for ComfyUI node menu
@@ -98,6 +100,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Body2COLMAP_DropViews": "✂️ Drop Views",
     "Body2COLMAP_ExportCOLMAP": "📦 Export COLMAP",
     "Body2COLMAP_RunBrush": "🎨 Train Gaussian Splat (Brush)",
+    "Body2COLMAP_DetectFaceLandmarks": "👤 Detect Face Landmarks",
 }
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]
