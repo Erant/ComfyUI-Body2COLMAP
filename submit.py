@@ -48,17 +48,21 @@ def find_directory_nodes(prompt):
     return results
 
 
-def patch_directory(prompt, directory):
-    """Replace directory fields in all Load/Save/Export Dataset nodes.
+def patch_directory(prompt, dataset):
+    """Prefix directory fields in all Load/Save/Export Dataset nodes with the dataset name.
+
+    Each node already has a subdirectory name (e.g. "control", "final").
+    This prepends the dataset name so "control" becomes "dataset_00001/control".
 
     Modifies prompt in-place. Returns the number of nodes patched.
     """
     nodes = find_directory_nodes(prompt)
     for node_id, class_type, field in nodes:
-        old = prompt[node_id]["inputs"].get(field)
-        prompt[node_id]["inputs"][field] = directory
+        subdir = prompt[node_id]["inputs"].get(field, "")
+        patched = os.path.join(dataset, subdir)
+        prompt[node_id]["inputs"][field] = patched
         title = prompt[node_id].get("_meta", {}).get("title", class_type)
-        print(f"  [{node_id}] {title}: {field} = {old!r} -> {directory!r}")
+        print(f"    [{node_id}] {title}: {field} = {subdir!r} -> {patched!r}")
     return len(nodes)
 
 
