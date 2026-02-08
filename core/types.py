@@ -1,6 +1,6 @@
 """Custom data types for Body2COLMAP ComfyUI nodes."""
 
-from typing import TypedDict, Any, Dict, List, Tuple, Optional
+from typing import TypedDict, Any, Dict, List, Tuple, Optional, Union
 import numpy as np
 from numpy.typing import NDArray
 
@@ -42,6 +42,31 @@ class B2C_COLMAP_METADATA(TypedDict, total=False):
     resolution: Tuple[int, int]
     splat_path: Optional[str]  # Optional field for splat integration
     framing_bounds: Optional[Dict[str, Tuple[NDArray[np.float32], NDArray[np.float32]]]]  # preset -> (min_corner, max_corner)
+
+
+class B2C_FACE_LANDMARKS(TypedDict):
+    """Face landmark detection results for body2colmap ingestion.
+
+    Mirrors the JSON contract used by body2colmap's FaceLandmarkIngest:
+    the ``source`` field selects which ``from_*`` converter to call, and
+    the remaining fields provide the data that converter needs.
+
+    Currently only "mediapipe" is supported.  Future sources (e.g. "dlib",
+    "insightface") would add their own ``from_*`` methods to
+    FaceLandmarkIngest and use the same dispatching pattern.
+
+    Attributes:
+        source: Identifier for the landmark format (e.g. "mediapipe").
+            Used to dispatch to the correct FaceLandmarkIngest converter.
+        landmarks: Raw landmark coordinates, shape (N, 3) float32.
+            For mediapipe: N is 478 (refined) or 468, coords are
+            normalized to [0,1] relative to image dimensions.
+        image_size: (width, height) of the source image in pixels.
+            Required for correct denormalization of coordinates.
+    """
+    source: str
+    landmarks: NDArray[np.float32]
+    image_size: Tuple[int, int]
 
 
 # Custom type identifier for Gaussian Splat scenes
