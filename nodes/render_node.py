@@ -7,6 +7,7 @@ import comfy.utils
 from body2colmap.renderer import Renderer
 from body2colmap.path import OrbitPath
 from body2colmap.camera import Camera
+from body2colmap.face import FaceLandmarkIngest
 from body2colmap.utils import compute_default_focal_length, compute_auto_orbit_radius
 from ..core.sam3d_adapter import sam3d_output_to_scene
 from ..core.comfy_utils import rendered_to_comfy
@@ -149,6 +150,23 @@ class Body2COLMAP_Render:
                     "magma"
                 ], {"default": "grayscale"}),
 
+                # Face landmark rendering (requires skeleton render modes)
+                "face_landmarks": ("B2C_FACE_LANDMARKS", {
+                    "tooltip": (
+                        "Optional face landmarks from Detect Face Landmarks node. "
+                        "When connected, face keypoints are rendered on skeleton modes."
+                    )
+                }),
+                "face_mode": (["full", "points", "none"], {
+                    "default": "full",
+                    "tooltip": (
+                        "Face rendering mode: "
+                        "full = points + connectivity lines, "
+                        "points = points only, "
+                        "none = disabled"
+                    )
+                }),
+
                 # Point cloud sampling for COLMAP export
                 "pointcloud_samples": ("INT", {
                     "default": 10000,
@@ -167,6 +185,7 @@ class Body2COLMAP_Render:
                skeleton_format="openpose_body25_hands",
                joint_radius=0.006, bone_radius=0.003,
                depth_colormap="grayscale",
+               face_landmarks=None, face_mode="full",
                pointcloud_samples=10000):
         """
         Render all camera positions and return batch of images + masks.
@@ -286,6 +305,28 @@ class Body2COLMAP_Render:
         # Map "grayscale" to None (no colormap = grayscale depth)
         depth_cmap = None if depth_colormap == "grayscale" else depth_colormap
 
+        # Convert face landmarks if provided
+        openpose_face_70 = None
+        effective_face_mode = None
+        if face_landmarks is not None and face_mode != "none":
+            source = face_landmarks["source"]
+            if source == "mediapipe":
+                logger.info("[Body2COLMAP] Converting MediaPipe face landmarks to OpenPose Face 70...")
+                openpose_face_70 = FaceLandmarkIngest.from_mediapipe(
+                    face_landmarks["landmarks"],
+                    image_size=face_landmarks["image_size"],
+                )
+                effective_face_mode = face_mode
+                logger.info(
+                    f"[Body2COLMAP] Face landmarks converted: "
+                    f"{openpose_face_70.shape}, face_mode={face_mode}"
+                )
+            else:
+                raise ValueError(
+                    f"Unsupported face landmark source: '{source}'. "
+                    f"Supported: 'mediapipe'"
+                )
+
         # Create renderer - requires scene and render_size tuple
         logger.info(f"[Body2COLMAP] Creating renderer (size={width}x{height})...")
         t0 = time.time()
@@ -326,34 +367,48 @@ class Body2COLMAP_Render:
                     target_format=skeleton_format,
                     joint_radius=joint_radius,
                     bone_radius=bone_radius,
+                    face_mode=effective_face_mode,
+                    face_landmarks=openpose_face_70,
                 )
             elif render_mode == "mesh+skeleton":
                 if i == 0:
                     logger.info("[Body2COLMAP] Calling render_composite (mesh+skeleton)...")
+                composite_modes = {
+                    "mesh": {"color": mesh_color, "bg_color": bg_color},
+                    "skeleton": {
+                        "target_format": skeleton_format,
+                        "joint_radius": joint_radius,
+                        "bone_radius": bone_radius
+                    }
+                }
+                if effective_face_mode is not None:
+                    composite_modes["face"] = {
+                        "face_mode": effective_face_mode,
+                        "face_landmarks": openpose_face_70,
+                    }
                 img = renderer.render_composite(
                     camera=camera,
-                    modes={
-                        "mesh": {"color": mesh_color, "bg_color": bg_color},
-                        "skeleton": {
-                            "target_format": skeleton_format,
-                            "joint_radius": joint_radius,
-                            "bone_radius": bone_radius
-                        }
-                    }
+                    modes=composite_modes,
                 )
             elif render_mode == "depth+skeleton":
                 if i == 0:
                     logger.info("[Body2COLMAP] Calling render_composite (depth+skeleton)...")
+                composite_modes = {
+                    "depth": {"colormap": depth_cmap},
+                    "skeleton": {
+                        "target_format": skeleton_format,
+                        "joint_radius": joint_radius,
+                        "bone_radius": bone_radius
+                    }
+                }
+                if effective_face_mode is not None:
+                    composite_modes["face"] = {
+                        "face_mode": effective_face_mode,
+                        "face_landmarks": openpose_face_70,
+                    }
                 img = renderer.render_composite(
                     camera=camera,
-                    modes={
-                        "depth": {"colormap": depth_cmap},
-                        "skeleton": {
-                            "target_format": skeleton_format,
-                            "joint_radius": joint_radius,
-                            "bone_radius": bone_radius
-                        }
-                    }
+                    modes=composite_modes,
                 )
             else:
                 raise ValueError(f"Unknown render mode: {render_mode}")
