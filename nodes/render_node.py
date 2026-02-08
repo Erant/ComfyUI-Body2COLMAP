@@ -3,6 +3,7 @@
 import logging
 import time
 
+import numpy as np
 import comfy.utils
 from body2colmap.renderer import Renderer
 from body2colmap.path import OrbitPath
@@ -166,6 +167,16 @@ class Body2COLMAP_Render:
                         "none = disabled"
                     )
                 }),
+                "face_max_angle": ("FLOAT", {
+                    "default": 90.0,
+                    "min": 1.0,
+                    "max": 90.0,
+                    "step": 1.0,
+                    "tooltip": (
+                        "Max angle (degrees) between face normal and camera to render "
+                        "face landmarks. 90 = full hemisphere, 45 = near-frontal only."
+                    )
+                }),
 
                 # Point cloud sampling for COLMAP export
                 "pointcloud_samples": ("INT", {
@@ -186,6 +197,7 @@ class Body2COLMAP_Render:
                joint_radius=0.006, bone_radius=0.003,
                depth_colormap="grayscale",
                face_landmarks=None, face_mode="full",
+               face_max_angle=90.0,
                pointcloud_samples=10000):
         """
         Render all camera positions and return batch of images + masks.
@@ -205,6 +217,28 @@ class Body2COLMAP_Render:
         t0 = time.time()
         scene = sam3d_output_to_scene(mesh_data, include_skeleton=include_skeleton)
         logger.info(f"[Body2COLMAP] Scene conversion complete ({time.time() - t0:.2f}s)")
+
+        # Auto-orient: rotate body to face camera at frame 0, then apply user offset
+        initial_rotation = path_config.get("initial_rotation", 0.0)
+        facing = scene.compute_torso_facing_direction()
+        if facing is not None:
+            current_angle = float(np.arctan2(facing[0], facing[2]))
+            target_angle = float(np.arctan2(0.0, -1.0))  # face -Z (toward camera)
+            correction_deg = float(np.degrees(target_angle - current_angle))
+        else:
+            correction_deg = 0.0
+        total_rotation = correction_deg + initial_rotation
+        scene.rotate_around_y(total_rotation)
+        if facing is not None:
+            logger.info(
+                f"[Body2COLMAP] Auto-orient: correction={correction_deg:.1f}° + "
+                f"offset={initial_rotation:.1f}° = {total_rotation:.1f}°"
+            )
+        elif initial_rotation != 0.0:
+            logger.info(
+                f"[Body2COLMAP] No skeleton for auto-orient, "
+                f"applying raw rotation={initial_rotation:.1f}°"
+            )
 
         # Determine focal length in pixels
         # Convert from mm (35mm full-frame equivalent) to pixels
@@ -369,6 +403,7 @@ class Body2COLMAP_Render:
                     bone_radius=bone_radius,
                     face_mode=effective_face_mode,
                     face_landmarks=openpose_face_70,
+                    face_max_angle=face_max_angle,
                 )
             elif render_mode == "mesh+skeleton":
                 if i == 0:
@@ -385,6 +420,7 @@ class Body2COLMAP_Render:
                     composite_modes["face"] = {
                         "face_mode": effective_face_mode,
                         "face_landmarks": openpose_face_70,
+                        "face_max_angle": face_max_angle,
                     }
                 img = renderer.render_composite(
                     camera=camera,
@@ -405,6 +441,7 @@ class Body2COLMAP_Render:
                     composite_modes["face"] = {
                         "face_mode": effective_face_mode,
                         "face_landmarks": openpose_face_70,
+                        "face_max_angle": face_max_angle,
                     }
                 img = renderer.render_composite(
                     camera=camera,
@@ -444,6 +481,7 @@ class Body2COLMAP_Render:
             "points_3d": (points, colors),
             "resolution": (width, height),
             "framing_bounds": all_framing_bounds,  # Dict of all computed framing bounds
+            "initial_rotation": initial_rotation,  # For splat renderer to reuse
         }
 
         return (images_tensor, masks_tensor, b2c_data)

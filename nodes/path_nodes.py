@@ -54,10 +54,21 @@ class Body2COLMAP_CircularPath:
                     "default": "full",
                     "tooltip": "Camera framing preset (torso/bust/head require skeleton data in mesh renderer)"
                 }),
+                "initial_rotation": ("FLOAT", {
+                    "default": 0.0,
+                    "min": -360.0,
+                    "max": 360.0,
+                    "step": 5.0,
+                    "tooltip": (
+                        "Additional rotation (degrees) after auto-facing the body toward "
+                        "the camera. 0 = face camera, 90 = right side, 180 = back."
+                    )
+                }),
             }
         }
 
-    def configure(self, n_frames, elevation_deg, radius=0.0, start_azimuth_deg=0.0, overlap=1, framing="full"):
+    def configure(self, n_frames, elevation_deg, radius=0.0, start_azimuth_deg=0.0,
+                  overlap=1, framing="full", initial_rotation=0.0):
         """Return circular path configuration."""
         return ({
             "pattern": "circular",
@@ -69,6 +80,7 @@ class Body2COLMAP_CircularPath:
                 "overlap": int(overlap),
             },
             "framing": framing,
+            "initial_rotation": float(initial_rotation),
         },)
 
 
@@ -125,11 +137,22 @@ class Body2COLMAP_SinusoidalPath:
                     "default": "full",
                     "tooltip": "Camera framing preset (torso/bust/head require skeleton data in mesh renderer)"
                 }),
+                "initial_rotation": ("FLOAT", {
+                    "default": 0.0,
+                    "min": -360.0,
+                    "max": 360.0,
+                    "step": 5.0,
+                    "tooltip": (
+                        "Additional rotation (degrees) after auto-facing the body toward "
+                        "the camera. 0 = face camera, 90 = right side, 180 = back."
+                    )
+                }),
             }
         }
 
     def configure(self, n_frames, amplitude_deg, n_cycles,
-                  radius=0.0, start_azimuth_deg=0.0, framing="full"):
+                  radius=0.0, start_azimuth_deg=0.0, framing="full",
+                  initial_rotation=0.0):
         """Return sinusoidal path configuration."""
         return ({
             "pattern": "sinusoidal",
@@ -141,6 +164,7 @@ class Body2COLMAP_SinusoidalPath:
                 "start_azimuth_deg": float(start_azimuth_deg),
             },
             "framing": framing,
+            "initial_rotation": float(initial_rotation),
         },)
 
 
@@ -210,12 +234,23 @@ class Body2COLMAP_HelicalPath:
                     "default": "full",
                     "tooltip": "Camera framing preset (torso/bust/head require skeleton data in mesh renderer)"
                 }),
+                "initial_rotation": ("FLOAT", {
+                    "default": 0.0,
+                    "min": -360.0,
+                    "max": 360.0,
+                    "step": 5.0,
+                    "tooltip": (
+                        "Additional rotation (degrees) after auto-facing the body toward "
+                        "the camera. 0 = face camera, 90 = right side, 180 = back."
+                    )
+                }),
             }
         }
 
     def configure(self, n_frames, n_loops, amplitude_deg,
                   lead_in_deg=30.0, lead_out_deg=90.0,
-                  radius=0.0, start_azimuth_deg=0.0, framing="full"):
+                  radius=0.0, start_azimuth_deg=0.0, framing="full",
+                  initial_rotation=0.0):
         """Return helical path configuration."""
         return ({
             "pattern": "helical",
@@ -229,4 +264,5 @@ class Body2COLMAP_HelicalPath:
                 "start_azimuth_deg": float(start_azimuth_deg),
             },
             "framing": framing,
+            "initial_rotation": float(initial_rotation),
         },)
