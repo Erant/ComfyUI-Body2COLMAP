@@ -4,15 +4,24 @@
 Workflows must be exported in API format (not the default Save format).
 In ComfyUI: Settings > enable Dev Mode, then File > Export (API Format).
 
+The workflow directory should contain numbered JSON files that will be
+executed in sorted order for each dataset:
+
+    workflows/
+        1_load_and_segment.json
+        2_refine_masks.json
+        3_export_colmap.json
+
 Usage:
-    python submit.py workflow_api.json my_dataset
-    python submit.py workflow_api.json dir1 dir2 dir3
-    python submit.py --server 192.168.1.100:8188 workflow_api.json my_dataset
+    python submit.py workflows/ my_dataset
+    python submit.py workflows/ dir1 dir2 dir3
+    python submit.py --server 192.168.1.100:8188 workflows/ my_dataset
 """
 
 import argparse
 import copy
 import json
+import os
 import sys
 import time
 import urllib.error
@@ -63,6 +72,42 @@ def validate_api_format(prompt):
     return "class_type" in sample
 
 
+def load_workflows(workflow_dir):
+    """Load all .json workflows from a directory, sorted by filename.
+
+    Returns list of (filename, prompt_dict) tuples.
+    """
+    files = sorted(
+        f for f in os.listdir(workflow_dir) if f.endswith(".json")
+    )
+    if not files:
+        print(f"Error: No .json files found in {workflow_dir}", file=sys.stderr)
+        sys.exit(1)
+
+    workflows = []
+    for filename in files:
+        path = os.path.join(workflow_dir, filename)
+        try:
+            with open(path) as f:
+                prompt = json.load(f)
+        except (json.JSONDecodeError, FileNotFoundError) as e:
+            print(f"Error loading {path}: {e}", file=sys.stderr)
+            sys.exit(1)
+
+        if not validate_api_format(prompt):
+            print(
+                f"Error: {filename} doesn't look like an API-format workflow.\n"
+                "In ComfyUI, enable Dev Mode in Settings, then use\n"
+                "File > Export (API Format) to get the correct format.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        workflows.append((filename, prompt))
+
+    return workflows
+
+
 def queue_prompt(server, prompt):
     """Submit an API-format prompt to ComfyUI. Returns prompt_id."""
     payload = json.dumps({"prompt": prompt}).encode("utf-8")
@@ -108,8 +153,9 @@ def main():
         ),
     )
     parser.add_argument(
-        "workflow",
-        help="Path to workflow JSON file (API format)",
+        "workflow_dir",
+        help="Directory containing workflow JSON files (API format), "
+        "executed in sorted order (e.g. 1_load.json, 2_refine.json)",
     )
     parser.add_argument(
         "directories",
@@ -134,76 +180,68 @@ def main():
     )
     args = parser.parse_args()
 
-    # Load workflow template
-    try:
-        with open(args.workflow) as f:
-            template = json.load(f)
-    except (json.JSONDecodeError, FileNotFoundError) as e:
-        print(f"Error loading workflow: {e}", file=sys.stderr)
-        sys.exit(1)
+    # Load and validate all workflows up front
+    workflows = load_workflows(args.workflow_dir)
+    print(f"Loaded {len(workflows)} workflow(s) from {args.workflow_dir}:")
+    for filename, _ in workflows:
+        print(f"  {filename}")
 
-    # Validate format
-    if not validate_api_format(template):
-        print(
-            "Error: This doesn't look like an API-format workflow.\n"
-            "In ComfyUI, enable Dev Mode in Settings, then use\n"
-            "File > Export (API Format) to get the correct format.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    # Check for relevant nodes
-    nodes = find_directory_nodes(template)
-    if not nodes:
-        print(
-            "Warning: No Body2COLMAP Load/Save/Export nodes found in workflow.",
-            file=sys.stderr,
-        )
-
-    # Process each directory
+    # Process each directory through the full workflow sequence
     for i, directory in enumerate(args.directories, 1):
-        print(f"\n[{i}/{len(args.directories)}] {directory}")
+        print(f"\n{'='*60}")
+        print(f"[{i}/{len(args.directories)}] Dataset: {directory}")
+        print(f"{'='*60}")
 
-        prompt = copy.deepcopy(template)
-        patched = patch_directory(prompt, directory)
+        for step, (filename, template) in enumerate(workflows, 1):
+            print(f"\n  Step {step}/{len(workflows)}: {filename}")
 
-        if patched == 0:
-            print("  No directory nodes to patch, skipping.", file=sys.stderr)
-            continue
+            prompt = copy.deepcopy(template)
+            patched = patch_directory(prompt, directory)
 
-        if args.dry_run:
-            print("  (dry run, not submitting)")
-            continue
+            if patched == 0:
+                print(
+                    "  Warning: No directory nodes to patch in this workflow.",
+                    file=sys.stderr,
+                )
 
-        # Submit
-        try:
-            prompt_id = queue_prompt(args.server, prompt)
-        except urllib.error.URLError as e:
-            print(
-                f"  Error connecting to ComfyUI at {args.server}: {e}",
-                file=sys.stderr,
+            if args.dry_run:
+                print("  (dry run, not submitting)")
+                continue
+
+            # Submit
+            try:
+                prompt_id = queue_prompt(args.server, prompt)
+            except urllib.error.URLError as e:
+                print(
+                    f"  Error connecting to ComfyUI at {args.server}: {e}",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            except RuntimeError as e:
+                print(f"  {e}", file=sys.stderr)
+                continue
+
+            print(f"  Queued: {prompt_id}")
+            print(f"  Waiting for completion", end="", flush=True)
+
+            result = wait_for_completion(
+                args.server, prompt_id, args.poll_interval
             )
-            sys.exit(1)
-        except RuntimeError as e:
-            print(f"  {e}", file=sys.stderr)
-            continue
 
-        print(f"  Queued: {prompt_id}")
-        print(f"  Waiting for completion", end="", flush=True)
-
-        result = wait_for_completion(args.server, prompt_id, args.poll_interval)
-
-        # Report outputs
-        outputs = result.get("outputs", {})
-        for node_id, out in outputs.items():
-            if out:
-                class_type = template.get(node_id, {}).get("class_type", "?")
-                print(f"  Output [{node_id}] ({class_type}):")
-                for key, val in out.items():
-                    print(f"    {key}: {val}")
+            # Report outputs
+            outputs = result.get("outputs", {})
+            for node_id, out in outputs.items():
+                if out:
+                    class_type = template.get(node_id, {}).get("class_type", "?")
+                    print(f"  Output [{node_id}] ({class_type}):")
+                    for key, val in out.items():
+                        print(f"    {key}: {val}")
 
     action = "Would process" if args.dry_run else "Processed"
-    print(f"\n{action} {len(args.directories)} workflow(s).")
+    print(
+        f"\nDone. {action} {len(args.directories)} dataset(s) "
+        f"x {len(workflows)} workflow(s)."
+    )
 
 
 if __name__ == "__main__":
