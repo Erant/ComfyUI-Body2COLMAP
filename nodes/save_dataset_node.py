@@ -116,6 +116,7 @@ class Body2COLMAP_SaveDataset:
                     "tooltip": "Optional reference image saved as reference.png for preview"
                 }),
                 "prompt": ("STRING", {
+                    "forceInput": True,
                     "tooltip": "Optional prompt text saved as prompt.txt alongside the dataset"
                 }),
             }
