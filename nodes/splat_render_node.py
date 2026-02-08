@@ -260,9 +260,11 @@ class Body2COLMAP_RenderSplat:
             "resolution": (width, height),
         }
 
-        # Pass through framing bounds if they were provided in input metadata
+        # Pass through metadata from mesh renderer for downstream reuse
         if b2c_data and "framing_bounds" in b2c_data:
             b2c_output["framing_bounds"] = b2c_data["framing_bounds"]
+        if b2c_data and "initial_rotation" in b2c_data:
+            b2c_output["initial_rotation"] = b2c_data["initial_rotation"]
 
         return (images_tensor, masks_tensor, b2c_output)
 

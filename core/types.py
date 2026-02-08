@@ -35,6 +35,7 @@ class B2C_COLMAP_METADATA(TypedDict, total=False):
         splat_path: Path to trained Gaussian splat PLY file [optional, None or "" if no splat]
         framing_bounds: Dict mapping framing presets to their bounding boxes [optional]
                        e.g., {"full": (min, max), "torso": (min, max), "bust": (min, max), "head": (min, max)}
+        initial_rotation: Degrees offset applied after auto-orient [optional, from mesh renderer]
     """
     cameras: List[Any]  # List[Camera] - avoiding import here
     image_names: List[str]
@@ -42,6 +43,7 @@ class B2C_COLMAP_METADATA(TypedDict, total=False):
     resolution: Tuple[int, int]
     splat_path: Optional[str]  # Optional field for splat integration
     framing_bounds: Optional[Dict[str, Tuple[NDArray[np.float32], NDArray[np.float32]]]]  # preset -> (min_corner, max_corner)
+    initial_rotation: Optional[float]  # Degrees offset after auto-orient (for splat renderer reuse)
 
 
 class B2C_FACE_LANDMARKS(TypedDict):
