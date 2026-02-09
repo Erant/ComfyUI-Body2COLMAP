@@ -66,6 +66,8 @@ from .nodes.drop_views_node import Body2COLMAP_DropViews
 from .nodes.export_node import Body2COLMAP_ExportCOLMAP
 from .nodes.brush_node import Body2COLMAP_RunBrush
 from .nodes.face_landmarks_node import Body2COLMAP_DetectFaceLandmarks
+from .nodes.placeholder_node import Body2COLMAP_Placeholder
+from .nodes.submit_node import Body2COLMAP_WorkflowComposer
 
 # Node class mappings for ComfyUI
 NODE_CLASS_MAPPINGS = {
@@ -83,6 +85,8 @@ NODE_CLASS_MAPPINGS = {
     "Body2COLMAP_ExportCOLMAP": Body2COLMAP_ExportCOLMAP,
     "Body2COLMAP_RunBrush": Body2COLMAP_RunBrush,
     "Body2COLMAP_DetectFaceLandmarks": Body2COLMAP_DetectFaceLandmarks,
+    "Body2COLMAP_Placeholder": Body2COLMAP_Placeholder,
+    "Body2COLMAP_WorkflowComposer": Body2COLMAP_WorkflowComposer,
 }
 
 # Display names for ComfyUI node menu
@@ -101,6 +105,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Body2COLMAP_ExportCOLMAP": "📦 Export COLMAP",
     "Body2COLMAP_RunBrush": "🎨 Train Gaussian Splat (Brush)",
     "Body2COLMAP_DetectFaceLandmarks": "👤 Detect Face Landmarks",
+    "Body2COLMAP_Placeholder": "🔌 Placeholder",
+    "Body2COLMAP_WorkflowComposer": "🎼 Workflow Composer",
 }
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]

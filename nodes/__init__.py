@@ -8,6 +8,8 @@ from .path_nodes import (
 from .render_node import Body2COLMAP_Render
 from .export_node import Body2COLMAP_ExportCOLMAP
 from .face_landmarks_node import Body2COLMAP_DetectFaceLandmarks
+from .placeholder_node import Body2COLMAP_Placeholder
+from .submit_node import Body2COLMAP_WorkflowComposer
 
 __all__ = [
     "Body2COLMAP_CircularPath",
@@ -16,4 +18,6 @@ __all__ = [
     "Body2COLMAP_Render",
     "Body2COLMAP_ExportCOLMAP",
     "Body2COLMAP_DetectFaceLandmarks",
+    "Body2COLMAP_Placeholder",
+    "Body2COLMAP_WorkflowComposer",
 ]
