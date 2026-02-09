@@ -70,11 +70,15 @@ def apply_settings(prompt, settings):
                 print(f"    [{node_id}] {title}: {key} = {value!r}")
 
 
+# Keys in a step that are directives, not node field overrides
+STEP_KEYS = {"workflow", "input", "output", "_prompt"}
+
+
 def patch_prompt(prompt, dataset, step_args, settings):
     """Apply step arguments and global settings to a workflow prompt.
 
     Prefixes input/output directory fields with the dataset name and
-    applies any global settings to matching nodes.
+    applies settings to matching nodes. Per-step values override globals.
     Modifies prompt in-place. Returns the number of nodes patched.
     """
     patched = 0
@@ -100,7 +104,10 @@ def patch_prompt(prompt, dataset, step_args, settings):
             print(f"    [{node_id}] {title}: {field} = {value!r}")
             patched += 1
 
-    apply_settings(prompt, settings)
+    # Merge settings: step-level overrides take precedence over globals
+    step_overrides = {k: v for k, v in step_args.items() if k not in STEP_KEYS}
+    merged = {**settings, **step_overrides}
+    apply_settings(prompt, merged)
 
     return patched
 
