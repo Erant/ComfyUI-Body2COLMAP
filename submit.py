@@ -4,24 +4,28 @@
 Workflows must be exported in API format (not the default Save format).
 In ComfyUI: Settings > enable Dev Mode, then File > Export (API Format).
 
-The pipeline is defined as a YAML config — an array of steps, each
-referencing a workflow file and providing arguments:
+The pipeline is defined as a YAML config with global settings and an
+ordered list of steps:
 
     # pipeline.yaml
-    - workflow: segment.json
-      input: source
-      output: control
+    settings:
+      brush_path: /opt/brush/bin/brush
 
-    - workflow: refine.json
-      input: control
-      output: refined
+    steps:
+      - workflow: segment.json
+        input: source
+        output: control
 
-    - workflow: segment.json      # workflows can repeat
-      input: refined
-      output: final
+      - workflow: refine.json
+        input: control
+        output: refined
 
-Arguments are prefixed with the dataset name at runtime, so for
-dataset_00001 the step above produces "dataset_00001/control", etc.
+      - workflow: segment.json      # workflows can repeat
+        input: refined
+        output: final
+
+Step arguments (input/output) are prefixed with the dataset name at
+runtime, so for dataset_00001 "control" becomes "dataset_00001/control".
 
 Usage:
     python submit.py pipeline.yaml dataset_00001
@@ -50,11 +54,33 @@ OUTPUT_NODES = {
     "Body2COLMAP_ExportCOLMAP": "output_directory",
 }
 
+# Global settings: config key -> (class_type, input field name)
+GLOBAL_SETTINGS = {
+    "brush_path": ("Body2COLMAP_RunBrush", "brush_path"),
+}
 
-def patch_prompt(prompt, dataset, step_args):
-    """Apply step arguments to a workflow prompt.
 
-    Prefixes input/output directory fields with the dataset name.
+def apply_settings(prompt, settings):
+    """Apply global settings to matching nodes in a prompt.
+
+    Modifies prompt in-place.
+    """
+    for key, value in settings.items():
+        if key not in GLOBAL_SETTINGS:
+            continue
+        class_type, field = GLOBAL_SETTINGS[key]
+        for node_id, node_def in prompt.items():
+            if node_def.get("class_type") == class_type:
+                node_def["inputs"][field] = value
+                title = node_def.get("_meta", {}).get("title", class_type)
+                print(f"    [{node_id}] {title}: {field} = {value!r}")
+
+
+def patch_prompt(prompt, dataset, step_args, settings):
+    """Apply step arguments and global settings to a workflow prompt.
+
+    Prefixes input/output directory fields with the dataset name and
+    applies any global settings to matching nodes.
     Modifies prompt in-place. Returns the number of nodes patched.
     """
     patched = 0
@@ -80,6 +106,8 @@ def patch_prompt(prompt, dataset, step_args):
             print(f"    [{node_id}] {title}: {field} = {value!r}")
             patched += 1
 
+    apply_settings(prompt, settings)
+
     return patched
 
 
@@ -96,18 +124,36 @@ def validate_api_format(prompt):
 def load_pipeline(config_path):
     """Load and validate a pipeline YAML config.
 
-    Returns (base_dir, steps) where each step is a dict with at least
-    'workflow' (loaded prompt dict) and 'workflow_name' keys, plus any
+    Returns (settings, steps) where settings is a dict of global options
+    and each step is a dict with at least a 'workflow' key plus any
     arguments like 'input' and 'output'.
     """
     base_dir = os.path.dirname(os.path.abspath(config_path))
 
     with open(config_path) as f:
-        steps = yaml.safe_load(f)
+        config = yaml.safe_load(f)
 
-    if not isinstance(steps, list):
-        print("Error: Pipeline config must be a YAML array of steps.", file=sys.stderr)
+    if not isinstance(config, dict) or "steps" not in config:
+        print(
+            "Error: Pipeline config must be a YAML mapping with a 'steps' key.",
+            file=sys.stderr,
+        )
         sys.exit(1)
+
+    settings = config.get("settings", {})
+    steps = config["steps"]
+
+    if not isinstance(steps, list) or not steps:
+        print("Error: 'steps' must be a non-empty array.", file=sys.stderr)
+        sys.exit(1)
+
+    # Warn on unrecognised settings
+    for key in settings:
+        if key not in GLOBAL_SETTINGS:
+            print(
+                f"Warning: Unknown setting {key!r} (known: {', '.join(GLOBAL_SETTINGS)})",
+                file=sys.stderr,
+            )
 
     # Load and validate each workflow, cache to avoid re-reading duplicates
     workflow_cache = {}
@@ -142,7 +188,7 @@ def load_pipeline(config_path):
 
         step["_prompt"] = workflow_cache[name]
 
-    return steps
+    return settings, steps
 
 
 def queue_prompt(server, prompt):
@@ -222,7 +268,11 @@ def main():
     args = parser.parse_args()
 
     # Load and validate pipeline up front
-    steps = load_pipeline(args.pipeline)
+    settings, steps = load_pipeline(args.pipeline)
+    if settings:
+        print("Settings:")
+        for key, val in settings.items():
+            print(f"  {key}: {val}")
     print(f"Pipeline ({len(steps)} steps):")
     for i, step in enumerate(steps, 1):
         parts = [step["workflow"]]
@@ -242,7 +292,7 @@ def main():
             print(f"\n  Step {si}/{len(steps)}: {step['workflow']}")
 
             prompt = copy.deepcopy(step["_prompt"])
-            patched = patch_prompt(prompt, dataset, step)
+            patched = patch_prompt(prompt, dataset, step, settings)
 
             if patched == 0:
                 print(
