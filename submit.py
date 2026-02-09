@@ -214,6 +214,11 @@ def main():
         action="store_true",
         help="Show what would be submitted without actually sending",
     )
+    parser.add_argument(
+        "--no-wait",
+        action="store_true",
+        help="Submit all workflows without waiting for completion",
+    )
     args = parser.parse_args()
 
     # Load and validate pipeline up front
@@ -263,6 +268,10 @@ def main():
                 continue
 
             print(f"    Queued: {prompt_id}")
+
+            if args.no_wait:
+                continue
+
             print(f"    Waiting for completion", end="", flush=True)
 
             result = wait_for_completion(
