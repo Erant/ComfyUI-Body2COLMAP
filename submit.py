@@ -174,7 +174,7 @@ def load_pipeline(config_path, workflow_dir=None):
         if name not in workflow_cache:
             path = os.path.join(workflow_dir, name)
             try:
-                with open(path) as f:
+                with open(path, encoding="utf-8") as f:
                     prompt = json.load(f)
             except (json.JSONDecodeError, FileNotFoundError) as e:
                 print(f"Error loading {path}: {e}", file=sys.stderr)
