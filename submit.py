@@ -4,18 +4,29 @@
 Workflows must be exported in API format (not the default Save format).
 In ComfyUI: Settings > enable Dev Mode, then File > Export (API Format).
 
-The workflow directory should contain numbered JSON files that will be
-executed in sorted order for each dataset:
+The pipeline is defined as a YAML config — an array of steps, each
+referencing a workflow file and providing arguments:
 
-    workflows/
-        1_load_and_segment.json
-        2_refine_masks.json
-        3_export_colmap.json
+    # pipeline.yaml
+    - workflow: segment.json
+      input: source
+      output: control
+
+    - workflow: refine.json
+      input: control
+      output: refined
+
+    - workflow: segment.json      # workflows can repeat
+      input: refined
+      output: final
+
+Arguments are prefixed with the dataset name at runtime, so for
+dataset_00001 the step above produces "dataset_00001/control", etc.
 
 Usage:
-    python submit.py workflows/ my_dataset
-    python submit.py workflows/ dir1 dir2 dir3
-    python submit.py --server 192.168.1.100:8188 workflows/ my_dataset
+    python submit.py pipeline.yaml dataset_00001
+    python submit.py pipeline.yaml dataset_00001 dataset_00002
+    python submit.py --server 192.168.1.100:8188 pipeline.yaml dataset_00001
 """
 
 import argparse
@@ -27,43 +38,49 @@ import time
 import urllib.error
 import urllib.request
 
-# Node class_type -> input field name for the directory parameter
-DIRECTORY_NODES = {
+import yaml
+
+# Node class_type -> input field name, split by role
+INPUT_NODES = {
     "Body2COLMAP_LoadDataset": "directory",
+}
+
+OUTPUT_NODES = {
     "Body2COLMAP_SaveDataset": "output_directory",
     "Body2COLMAP_ExportCOLMAP": "output_directory",
 }
 
 
-def find_directory_nodes(prompt):
-    """Find all nodes whose directory fields should be patched.
+def patch_prompt(prompt, dataset, step_args):
+    """Apply step arguments to a workflow prompt.
 
-    Returns list of (node_id, class_type, field_name) tuples.
-    """
-    results = []
-    for node_id, node_def in prompt.items():
-        class_type = node_def.get("class_type")
-        if class_type in DIRECTORY_NODES:
-            results.append((node_id, class_type, DIRECTORY_NODES[class_type]))
-    return results
-
-
-def patch_directory(prompt, dataset):
-    """Prefix directory fields in all Load/Save/Export Dataset nodes with the dataset name.
-
-    Each node already has a subdirectory name (e.g. "control", "final").
-    This prepends the dataset name so "control" becomes "dataset_00001/control".
-
+    Prefixes input/output directory fields with the dataset name.
     Modifies prompt in-place. Returns the number of nodes patched.
     """
-    nodes = find_directory_nodes(prompt)
-    for node_id, class_type, field in nodes:
-        subdir = prompt[node_id]["inputs"].get(field, "")
-        patched = os.path.join(dataset, subdir)
-        prompt[node_id]["inputs"][field] = patched
-        title = prompt[node_id].get("_meta", {}).get("title", class_type)
-        print(f"    [{node_id}] {title}: {field} = {subdir!r} -> {patched!r}")
-    return len(nodes)
+    patched = 0
+    input_dir = step_args.get("input")
+    output_dir = step_args.get("output")
+
+    for node_id, node_def in prompt.items():
+        class_type = node_def.get("class_type")
+
+        if class_type in INPUT_NODES and input_dir is not None:
+            field = INPUT_NODES[class_type]
+            value = os.path.join(dataset, input_dir)
+            node_def["inputs"][field] = value
+            title = node_def.get("_meta", {}).get("title", class_type)
+            print(f"    [{node_id}] {title}: {field} = {value!r}")
+            patched += 1
+
+        if class_type in OUTPUT_NODES and output_dir is not None:
+            field = OUTPUT_NODES[class_type]
+            value = os.path.join(dataset, output_dir)
+            node_def["inputs"][field] = value
+            title = node_def.get("_meta", {}).get("title", class_type)
+            print(f"    [{node_id}] {title}: {field} = {value!r}")
+            patched += 1
+
+    return patched
 
 
 def validate_api_format(prompt):
@@ -76,40 +93,56 @@ def validate_api_format(prompt):
     return "class_type" in sample
 
 
-def load_workflows(workflow_dir):
-    """Load all .json workflows from a directory, sorted by filename.
+def load_pipeline(config_path):
+    """Load and validate a pipeline YAML config.
 
-    Returns list of (filename, prompt_dict) tuples.
+    Returns (base_dir, steps) where each step is a dict with at least
+    'workflow' (loaded prompt dict) and 'workflow_name' keys, plus any
+    arguments like 'input' and 'output'.
     """
-    files = sorted(
-        f for f in os.listdir(workflow_dir) if f.endswith(".json")
-    )
-    if not files:
-        print(f"Error: No .json files found in {workflow_dir}", file=sys.stderr)
+    base_dir = os.path.dirname(os.path.abspath(config_path))
+
+    with open(config_path) as f:
+        steps = yaml.safe_load(f)
+
+    if not isinstance(steps, list):
+        print("Error: Pipeline config must be a YAML array of steps.", file=sys.stderr)
         sys.exit(1)
 
-    workflows = []
-    for filename in files:
-        path = os.path.join(workflow_dir, filename)
-        try:
-            with open(path) as f:
-                prompt = json.load(f)
-        except (json.JSONDecodeError, FileNotFoundError) as e:
-            print(f"Error loading {path}: {e}", file=sys.stderr)
-            sys.exit(1)
-
-        if not validate_api_format(prompt):
+    # Load and validate each workflow, cache to avoid re-reading duplicates
+    workflow_cache = {}
+    for i, step in enumerate(steps):
+        if not isinstance(step, dict) or "workflow" not in step:
             print(
-                f"Error: {filename} doesn't look like an API-format workflow.\n"
-                "In ComfyUI, enable Dev Mode in Settings, then use\n"
-                "File > Export (API Format) to get the correct format.",
+                f"Error: Step {i + 1} must be a mapping with at least a 'workflow' key.",
                 file=sys.stderr,
             )
             sys.exit(1)
 
-        workflows.append((filename, prompt))
+        name = step["workflow"]
+        if name not in workflow_cache:
+            path = os.path.join(base_dir, name)
+            try:
+                with open(path) as f:
+                    prompt = json.load(f)
+            except (json.JSONDecodeError, FileNotFoundError) as e:
+                print(f"Error loading {path}: {e}", file=sys.stderr)
+                sys.exit(1)
 
-    return workflows
+            if not validate_api_format(prompt):
+                print(
+                    f"Error: {name} doesn't look like an API-format workflow.\n"
+                    "In ComfyUI, enable Dev Mode in Settings, then use\n"
+                    "File > Export (API Format) to get the correct format.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+
+            workflow_cache[name] = prompt
+
+        step["_prompt"] = workflow_cache[name]
+
+    return steps
 
 
 def queue_prompt(server, prompt):
@@ -157,14 +190,13 @@ def main():
         ),
     )
     parser.add_argument(
-        "workflow_dir",
-        help="Directory containing workflow JSON files (API format), "
-        "executed in sorted order (e.g. 1_load.json, 2_refine.json)",
+        "pipeline",
+        help="Path to pipeline YAML config",
     )
     parser.add_argument(
-        "directories",
+        "datasets",
         nargs="+",
-        help="Dataset directory name(s) to substitute into Load/Save nodes",
+        help="Dataset name(s) to prefix onto node directories",
     )
     parser.add_argument(
         "--server",
@@ -184,32 +216,37 @@ def main():
     )
     args = parser.parse_args()
 
-    # Load and validate all workflows up front
-    workflows = load_workflows(args.workflow_dir)
-    print(f"Loaded {len(workflows)} workflow(s) from {args.workflow_dir}:")
-    for filename, _ in workflows:
-        print(f"  {filename}")
+    # Load and validate pipeline up front
+    steps = load_pipeline(args.pipeline)
+    print(f"Pipeline ({len(steps)} steps):")
+    for i, step in enumerate(steps, 1):
+        parts = [step["workflow"]]
+        if "input" in step:
+            parts.append(f"input={step['input']}")
+        if "output" in step:
+            parts.append(f"output={step['output']}")
+        print(f"  {i}. {', '.join(parts)}")
 
-    # Process each directory through the full workflow sequence
-    for i, directory in enumerate(args.directories, 1):
+    # Process each dataset through the full pipeline
+    for di, dataset in enumerate(args.datasets, 1):
         print(f"\n{'='*60}")
-        print(f"[{i}/{len(args.directories)}] Dataset: {directory}")
+        print(f"[{di}/{len(args.datasets)}] Dataset: {dataset}")
         print(f"{'='*60}")
 
-        for step, (filename, template) in enumerate(workflows, 1):
-            print(f"\n  Step {step}/{len(workflows)}: {filename}")
+        for si, step in enumerate(steps, 1):
+            print(f"\n  Step {si}/{len(steps)}: {step['workflow']}")
 
-            prompt = copy.deepcopy(template)
-            patched = patch_directory(prompt, directory)
+            prompt = copy.deepcopy(step["_prompt"])
+            patched = patch_prompt(prompt, dataset, step)
 
             if patched == 0:
                 print(
-                    "  Warning: No directory nodes to patch in this workflow.",
+                    "  Warning: No nodes to patch in this workflow.",
                     file=sys.stderr,
                 )
 
             if args.dry_run:
-                print("  (dry run, not submitting)")
+                print("    (dry run, not submitting)")
                 continue
 
             # Submit
@@ -225,8 +262,8 @@ def main():
                 print(f"  {e}", file=sys.stderr)
                 continue
 
-            print(f"  Queued: {prompt_id}")
-            print(f"  Waiting for completion", end="", flush=True)
+            print(f"    Queued: {prompt_id}")
+            print(f"    Waiting for completion", end="", flush=True)
 
             result = wait_for_completion(
                 args.server, prompt_id, args.poll_interval
@@ -236,15 +273,17 @@ def main():
             outputs = result.get("outputs", {})
             for node_id, out in outputs.items():
                 if out:
-                    class_type = template.get(node_id, {}).get("class_type", "?")
-                    print(f"  Output [{node_id}] ({class_type}):")
+                    class_type = step["_prompt"].get(node_id, {}).get(
+                        "class_type", "?"
+                    )
+                    print(f"    Output [{node_id}] ({class_type}):")
                     for key, val in out.items():
-                        print(f"    {key}: {val}")
+                        print(f"      {key}: {val}")
 
     action = "Would process" if args.dry_run else "Processed"
     print(
-        f"\nDone. {action} {len(args.directories)} dataset(s) "
-        f"x {len(workflows)} workflow(s)."
+        f"\nDone. {action} {len(args.datasets)} dataset(s) "
+        f"x {len(steps)} step(s)."
     )
 
 
