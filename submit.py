@@ -128,14 +128,20 @@ def validate_api_format(prompt):
     return "class_type" in sample
 
 
-def load_pipeline(config_path):
+def load_pipeline(config_path, workflow_dir=None):
     """Load and validate a pipeline YAML config.
 
     Returns (settings, steps) where settings is a dict of global options
     and each step is a dict with at least a 'workflow' key plus a 'paths'
     mapping and optional field overrides.
+
+    Workflow JSON files are resolved relative to workflow_dir, which
+    defaults to 'workflows/api/' next to the config file.
     """
     base_dir = os.path.dirname(os.path.abspath(config_path))
+    if workflow_dir is None:
+        workflow_dir = os.path.join(base_dir, "workflows", "api")
+    workflow_dir = os.path.abspath(workflow_dir)
 
     with open(config_path) as f:
         config = yaml.safe_load(f)
@@ -166,7 +172,7 @@ def load_pipeline(config_path):
 
         name = step["workflow"]
         if name not in workflow_cache:
-            path = os.path.join(base_dir, name)
+            path = os.path.join(workflow_dir, name)
             try:
                 with open(path) as f:
                     prompt = json.load(f)
@@ -244,6 +250,12 @@ def main():
         help="Dataset name(s) to prefix onto node directories",
     )
     parser.add_argument(
+        "--workflow-dir",
+        default=None,
+        help="Directory containing workflow JSON files "
+        "(default: workflows/api/ next to the pipeline YAML)",
+    )
+    parser.add_argument(
         "--server",
         default="127.0.0.1:8188",
         help="ComfyUI server address (default: %(default)s)",
@@ -267,7 +279,7 @@ def main():
     args = parser.parse_args()
 
     # Load and validate pipeline up front
-    settings, steps = load_pipeline(args.pipeline)
+    settings, steps = load_pipeline(args.pipeline, args.workflow_dir)
     if settings:
         print("Settings:")
         for key, val in settings.items():
