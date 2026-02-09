@@ -13,18 +13,23 @@ ordered list of steps:
 
     steps:
       - workflow: segment.json
-        input: source
-        output: control
+        paths:
+          source: source
+          control: control
 
       - workflow: refine.json
-        input: control
-        output: refined
+        paths:
+          control: control       # Load from previous step's output
+          masks: segmentation
+          refined: refined
 
-      - workflow: segment.json      # workflows can repeat
-        input: refined
-        output: final
+      - workflow: segment.json   # workflows can repeat
+        paths:
+          source: refined
+          control: final
 
-Step arguments (input/output) are prefixed with the dataset name at
+The 'paths' dict maps directory values found in the workflow JSON
+to subdirectory names. Each is prefixed with the dataset name at
 runtime, so for dataset_00001 "control" becomes "dataset_00001/control".
 
 Usage:
@@ -44,15 +49,15 @@ import urllib.request
 
 import yaml
 
-# Node class_type -> input field name, split by role
-INPUT_NODES = {
+# class_type -> input field that holds a directory path
+DIRECTORY_FIELDS = {
     "Body2COLMAP_LoadDataset": "directory",
-}
-
-OUTPUT_NODES = {
     "Body2COLMAP_SaveDataset": "output_directory",
     "Body2COLMAP_ExportCOLMAP": "output_directory",
 }
+
+# Keys in a step that are directives, not node field overrides
+STEP_KEYS = {"workflow", "paths", "_prompt"}
 
 
 def apply_settings(prompt, settings):
@@ -70,39 +75,40 @@ def apply_settings(prompt, settings):
                 print(f"    [{node_id}] {title}: {key} = {value!r}")
 
 
-# Keys in a step that are directives, not node field overrides
-STEP_KEYS = {"workflow", "input", "output", "_prompt"}
-
-
 def patch_prompt(prompt, dataset, step_args, settings):
-    """Apply step arguments and global settings to a workflow prompt.
+    """Apply path mappings and global settings to a workflow prompt.
 
-    Prefixes input/output directory fields with the dataset name and
-    applies settings to matching nodes. Per-step values override globals.
-    Modifies prompt in-place. Returns the number of nodes patched.
+    For each Load/Save/Export Dataset node, reads its current directory
+    value from the workflow JSON and uses it as a key into the step's
+    'paths' dict. The mapped value is then prefixed with the dataset
+    name to produce the final directory.
+
+    Modifies prompt in-place. Returns the number of directory nodes patched.
     """
+    paths = step_args.get("paths", {})
     patched = 0
-    input_dir = step_args.get("input")
-    output_dir = step_args.get("output")
 
     for node_id, node_def in prompt.items():
         class_type = node_def.get("class_type")
+        if class_type not in DIRECTORY_FIELDS:
+            continue
 
-        if class_type in INPUT_NODES and input_dir is not None:
-            field = INPUT_NODES[class_type]
-            value = os.path.join(dataset, input_dir)
-            node_def["inputs"][field] = value
-            title = node_def.get("_meta", {}).get("title", class_type)
-            print(f"    [{node_id}] {title}: {field} = {value!r}")
-            patched += 1
+        field = DIRECTORY_FIELDS[class_type]
+        current = node_def["inputs"].get(field, "")
+        title = node_def.get("_meta", {}).get("title", class_type)
 
-        if class_type in OUTPUT_NODES and output_dir is not None:
-            field = OUTPUT_NODES[class_type]
-            value = os.path.join(dataset, output_dir)
-            node_def["inputs"][field] = value
-            title = node_def.get("_meta", {}).get("title", class_type)
-            print(f"    [{node_id}] {title}: {field} = {value!r}")
-            patched += 1
+        if current not in paths:
+            print(
+                f"    [{node_id}] {title}: {field} = {current!r} "
+                f"(not in paths, skipping)",
+                file=sys.stderr,
+            )
+            continue
+
+        value = os.path.join(dataset, paths[current])
+        node_def["inputs"][field] = value
+        print(f"    [{node_id}] {title}: {field} = {current!r} -> {value!r}")
+        patched += 1
 
     # Merge settings: step-level overrides take precedence over globals
     step_overrides = {k: v for k, v in step_args.items() if k not in STEP_KEYS}
@@ -126,8 +132,8 @@ def load_pipeline(config_path):
     """Load and validate a pipeline YAML config.
 
     Returns (settings, steps) where settings is a dict of global options
-    and each step is a dict with at least a 'workflow' key plus any
-    arguments like 'input' and 'output'.
+    and each step is a dict with at least a 'workflow' key plus a 'paths'
+    mapping and optional field overrides.
     """
     base_dir = os.path.dirname(os.path.abspath(config_path))
 
@@ -268,12 +274,9 @@ def main():
             print(f"  {key}: {val}")
     print(f"Pipeline ({len(steps)} steps):")
     for i, step in enumerate(steps, 1):
-        parts = [step["workflow"]]
-        if "input" in step:
-            parts.append(f"input={step['input']}")
-        if "output" in step:
-            parts.append(f"output={step['output']}")
-        print(f"  {i}. {', '.join(parts)}")
+        paths = step.get("paths", {})
+        path_str = " ".join(f"{k}->{v}" for k, v in paths.items())
+        print(f"  {i}. {step['workflow']}  {path_str}")
 
     # Process each dataset through the full pipeline
     for di, dataset in enumerate(args.datasets, 1):
