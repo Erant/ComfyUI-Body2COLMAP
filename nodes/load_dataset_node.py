@@ -91,15 +91,15 @@ class Body2COLMAP_LoadDataset:
 
     CATEGORY = "Body2COLMAP"
     FUNCTION = "load"
-    RETURN_TYPES = ("B2C_COLMAP_METADATA", "IMAGE", "MASK", "IMAGE", "SPLAT_SCENE")
-    RETURN_NAMES = ("b2c_data", "images", "masks", "reference_image", "splat_scene")
+    RETURN_TYPES = ("B2C_COLMAP_METADATA", "IMAGE", "MASK", "IMAGE", "STRING")
+    RETURN_NAMES = ("b2c_data", "images", "masks", "reference_image", "prompt")
     OUTPUT_IS_LIST = (False, True, True, False, False)  # images and masks are lists for batching
     OUTPUT_TOOLTIPS = (
         "Body2COLMAP dataset metadata (connect to ExportCOLMAP or SaveDataset)",
         "List of image batches (processed sequentially)",
         "List of mask batches (processed sequentially)",
         "Reference image for preview (empty if not saved)",
-        "Trained Gaussian splat scene (None if not saved)"
+        "Prompt text used for the diffusion process (empty if not saved)"
     )
 
     @classmethod
@@ -153,7 +153,7 @@ class Body2COLMAP_LoadDataset:
             images: List of ComfyUI IMAGE tensors (one per batch)
             masks: List of ComfyUI MASK tensors (one per batch)
             reference_image: ComfyUI IMAGE tensor (or empty if not present)
-            splat_scene: SPLAT_SCENE object (or None if not present)
+            prompt: Prompt text string (or empty if not present)
         """
         # Build full path
         if index == -1:
@@ -254,19 +254,15 @@ class Body2COLMAP_LoadDataset:
             reference_tensor = torch.zeros((1, 1, 1, 3), dtype=torch.float32)
             logger.info("[Body2COLMAP] No reference image found")
 
-        # Load splat if present in metadata
-        splat_scene = None
-        splat_filename = metadata.get("splat_filename")
-
-        if splat_filename:
-            splat_path = dataset_path / splat_filename
-
-            if splat_path.exists():
-                from body2colmap.splat_scene import SplatScene
-                splat_scene = SplatScene.from_ply(str(splat_path))
-                logger.info(f"[Body2COLMAP] Loaded splat ({len(splat_scene)} Gaussians, SH degree {splat_scene.sh_degree})")
-            else:
-                logger.warning(f"[Body2COLMAP] Splat marked in metadata but file not found: {splat_path}")
+        # Load prompt if exists
+        prompt_path = dataset_path / "prompt.txt"
+        if prompt_path.exists():
+            with open(prompt_path, 'r', encoding='utf-8') as f:
+                prompt = f.read()
+            logger.info("[Body2COLMAP] Loaded prompt text")
+        else:
+            prompt = ""
+            logger.info("[Body2COLMAP] No prompt text found")
 
         # Package metadata
         b2c_data = {
@@ -276,9 +272,16 @@ class Body2COLMAP_LoadDataset:
             "resolution": resolution,
         }
 
-        # Add splat path if loaded
-        if splat_scene is not None:
-            b2c_data["splat_path"] = str(splat_path)
+        # Check if splat exists and add path to b2c_data (for SaveDataset to copy)
+        splat_filename = metadata.get("splat_filename")
+        if splat_filename:
+            splat_path = dataset_path / splat_filename
+            if splat_path.exists():
+                b2c_data["splat_path"] = str(splat_path)
+                logger.info(f"[Body2COLMAP] Found splat file: {splat_filename}")
+            else:
+                b2c_data["splat_path"] = None
+                logger.warning(f"[Body2COLMAP] Splat marked in metadata but file not found: {splat_path}")
         else:
             b2c_data["splat_path"] = None
 
@@ -311,7 +314,9 @@ class Body2COLMAP_LoadDataset:
             print(f"[Body2COLMAP] - {len(images_batches)} batches (max {batch_size} images per batch)")
         if reference_path.exists():
             print("[Body2COLMAP] - reference.png")
-        if splat_scene is not None:
-            print(f"[Body2COLMAP] - splat.ply ({len(splat_scene)} Gaussians)")
+        if prompt:
+            print("[Body2COLMAP] - prompt.txt")
+        if b2c_data.get("splat_path"):
+            print(f"[Body2COLMAP] - {splat_filename}")
 
-        return (b2c_data, images_batches, masks_batches, reference_tensor, splat_scene)
+        return (b2c_data, images_batches, masks_batches, reference_tensor, prompt)
