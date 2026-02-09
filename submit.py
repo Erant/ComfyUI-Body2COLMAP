@@ -54,26 +54,20 @@ OUTPUT_NODES = {
     "Body2COLMAP_ExportCOLMAP": "output_directory",
 }
 
-# Global settings: config key -> (class_type, input field name)
-GLOBAL_SETTINGS = {
-    "brush_path": ("Body2COLMAP_RunBrush", "brush_path"),
-}
-
 
 def apply_settings(prompt, settings):
-    """Apply global settings to matching nodes in a prompt.
+    """Apply global settings to nodes by matching input field names.
 
-    Modifies prompt in-place.
+    Any setting key that matches an input field name on a node will
+    override that field's value. Modifies prompt in-place.
     """
-    for key, value in settings.items():
-        if key not in GLOBAL_SETTINGS:
-            continue
-        class_type, field = GLOBAL_SETTINGS[key]
-        for node_id, node_def in prompt.items():
-            if node_def.get("class_type") == class_type:
-                node_def["inputs"][field] = value
-                title = node_def.get("_meta", {}).get("title", class_type)
-                print(f"    [{node_id}] {title}: {field} = {value!r}")
+    for node_id, node_def in prompt.items():
+        inputs = node_def.get("inputs", {})
+        for key, value in settings.items():
+            if key in inputs and not isinstance(inputs[key], list):
+                inputs[key] = value
+                title = node_def.get("_meta", {}).get("title", node_def.get("class_type", "?"))
+                print(f"    [{node_id}] {title}: {key} = {value!r}")
 
 
 def patch_prompt(prompt, dataset, step_args, settings):
@@ -146,14 +140,6 @@ def load_pipeline(config_path):
     if not isinstance(steps, list) or not steps:
         print("Error: 'steps' must be a non-empty array.", file=sys.stderr)
         sys.exit(1)
-
-    # Warn on unrecognised settings
-    for key in settings:
-        if key not in GLOBAL_SETTINGS:
-            print(
-                f"Warning: Unknown setting {key!r} (known: {', '.join(GLOBAL_SETTINGS)})",
-                file=sys.stderr,
-            )
 
     # Load and validate each workflow, cache to avoid re-reading duplicates
     workflow_cache = {}
