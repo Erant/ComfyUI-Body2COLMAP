@@ -11,9 +11,11 @@ the ComfyUI execution queue.
 
 import copy
 import logging
+import os
 import time
 
 from ..submit import (
+    expand_datasets,
     fixup_placeholders,
     get_server_address,
     load_pipeline,
@@ -22,6 +24,21 @@ from ..submit import (
 )
 
 logger = logging.getLogger(__name__)
+
+_PACKAGE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_PIPELINE_DIR = os.path.join(_PACKAGE_ROOT, "workflows", "pipeline")
+_WORKFLOW_DIR = os.path.join(_PACKAGE_ROOT, "workflows", "api")
+
+
+def _list_pipelines():
+    """Enumerate pipeline YAML files, returning display names without extension."""
+    if not os.path.isdir(_PIPELINE_DIR):
+        return []
+    return sorted(
+        os.path.splitext(f)[0]
+        for f in os.listdir(_PIPELINE_DIR)
+        if f.endswith((".yaml", ".yml"))
+    )
 
 
 class Body2COLMAP_WorkflowComposer:
@@ -34,16 +51,19 @@ class Body2COLMAP_WorkflowComposer:
 
     @classmethod
     def INPUT_TYPES(cls):
+        pipelines = _list_pipelines()
         return {
             "required": {
-                "pipeline": ("STRING", {
-                    "default": "pipeline.yaml",
-                    "tooltip": "Path to the pipeline YAML config file",
+                "pipeline": (pipelines, {
+                    "tooltip": "Pipeline config from workflows/pipeline/",
                 }),
                 "datasets": ("STRING", {
                     "default": "",
                     "multiline": True,
-                    "tooltip": "Dataset names, one per line",
+                    "tooltip": (
+                        "Dataset paths, one per line. Trailing wildcards are "
+                        "expanded to matching directories (e.g. datasets/*)"
+                    ),
                 }),
             },
             "optional": {
@@ -84,13 +104,19 @@ class Body2COLMAP_WorkflowComposer:
         unique_id=None,
     ):
         server = get_server_address()
-        settings, steps = load_pipeline(pipeline)
 
-        dataset_list = [
-            d.strip() for d in datasets.strip().splitlines() if d.strip()
-        ]
+        # Resolve dropdown name (no extension) back to the YAML file on disk.
+        # Try .yaml first, then .yml.
+        pipeline_path = os.path.join(_PIPELINE_DIR, pipeline + ".yaml")
+        if not os.path.isfile(pipeline_path):
+            pipeline_path = os.path.join(_PIPELINE_DIR, pipeline + ".yml")
+
+        settings, steps = load_pipeline(pipeline_path, workflow_dir=_WORKFLOW_DIR)
+
+        raw_lines = datasets.strip().splitlines()
+        dataset_list = expand_datasets(raw_lines)
         if not dataset_list:
-            raise ValueError("No datasets specified")
+            raise ValueError("No datasets specified (or wildcard matched nothing)")
 
         prompt_ids = []
         total = len(dataset_list) * len(steps)

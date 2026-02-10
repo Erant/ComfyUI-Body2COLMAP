@@ -40,6 +40,7 @@ Usage:
 
 import argparse
 import copy
+import glob
 import json
 import os
 import sys
@@ -239,6 +240,31 @@ def get_server_address():
     if host in ("0.0.0.0", "::"):
         host = "127.0.0.1"
     return f"{host}:{port}"
+
+
+def expand_datasets(raw_lines):
+    """Expand dataset lines, supporting trailing wildcards.
+
+    Lines whose last path component contains a ``*`` are glob-expanded and
+    filtered to directories only.  Other lines are passed through as-is.
+
+    Example::
+
+        datasets/*          -> all directories inside datasets/
+        datasets/batch_*    -> directories matching the prefix
+        dataset_00001       -> passed through verbatim
+    """
+    result = []
+    for line in raw_lines:
+        line = line.strip()
+        if not line:
+            continue
+        if "*" in os.path.basename(line):
+            matches = sorted(glob.glob(line))
+            result.extend(m for m in matches if os.path.isdir(m))
+        else:
+            result.append(line)
+    return result
 
 
 def extract_ancestor_subgraph(prompt, node_id, input_name):
