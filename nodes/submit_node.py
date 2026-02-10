@@ -15,6 +15,7 @@ import os
 import time
 
 from ..submit import (
+    STEP_KEYS,
     expand_datasets,
     fixup_placeholders,
     get_server_address,
@@ -170,7 +171,13 @@ class Body2COLMAP_WorkflowComposer:
                 patch_prompt(workflow, dataset, step, settings)
 
                 if prompt is not None:
-                    fixup_placeholders(workflow, prompt, unique_id)
+                    # Merge global settings with step-level overrides so
+                    # placeholders can resolve keys from the pipeline YAML.
+                    step_overrides = {
+                        k: v for k, v in step.items() if k not in STEP_KEYS
+                    }
+                    merged = {**settings, **step_overrides}
+                    fixup_placeholders(workflow, prompt, unique_id, settings=merged)
 
                 pid = queue_prompt(server, workflow)
                 prompt_ids.append(pid)

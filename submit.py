@@ -331,19 +331,20 @@ def _is_connection(value):
     )
 
 
-def fixup_placeholders(target_workflow, prompt, unique_id):
+def fixup_placeholders(target_workflow, prompt, unique_id, settings=None):
     """Replace Body2COLMAP_Placeholder nodes in *target_workflow*.
 
-    Each Placeholder has a ``key`` that names an input on the
-    WorkflowComposer node (*unique_id*) in the live *prompt*.
+    Each Placeholder has a ``key`` that is resolved against two sources
+    (Composer node inputs take precedence over *settings*):
 
     * **Connection inputs** (e.g. ``model_high`` wired to a checkpoint
       loader chain): the full ancestor subgraph is extracted, remapped to
       avoid ID collisions, injected into *target_workflow*, and every
       consumer of the placeholder is rewired to the subgraph root.
 
-    * **Literal inputs** (e.g. ``brush_path = "brush"``): every consumer
-      of the placeholder has its reference replaced with the literal value.
+    * **Literal inputs** (e.g. ``brush_path = "brush"``, or a value from
+      the pipeline YAML settings): every consumer of the placeholder has
+      its reference replaced with the literal value.
 
     Modifies *target_workflow* in-place.
     """
@@ -365,17 +366,21 @@ def fixup_placeholders(target_workflow, prompt, unique_id):
         )
     composer_inputs = composer.get("inputs", {})
 
+    # Build merged lookup: pipeline settings as base, Composer inputs win
+    lookup = dict(settings) if settings else {}
+    lookup.update(composer_inputs)
+
     # Classify each placeholder as subgraph (connection) or literal
     subgraph_phs = {}   # placeholder_id -> key
     literal_phs = {}    # placeholder_id -> (key, value)
 
     for placeholder_id, key in placeholders.items():
-        if key not in composer_inputs:
+        if key not in lookup:
             raise ValueError(
                 f"Placeholder '{key}' has no matching input on the "
-                f"WorkflowComposer node."
+                f"WorkflowComposer node or in the pipeline settings."
             )
-        value = composer_inputs[key]
+        value = lookup[key]
         if _is_connection(value):
             subgraph_phs[placeholder_id] = key
         else:
