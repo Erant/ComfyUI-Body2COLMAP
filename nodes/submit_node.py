@@ -65,6 +65,12 @@ class Body2COLMAP_WorkflowComposer:
                         "expanded to matching directories (e.g. datasets/*)"
                     ),
                 }),
+                "brush_path": ("STRING", {
+                    "default": "brush",
+                    "tooltip": (
+                        "Path to the brush executable (or 'brush' if in PATH)"
+                    ),
+                }),
             },
             "optional": {
                 "model_high": ("MODEL", {
@@ -98,6 +104,7 @@ class Body2COLMAP_WorkflowComposer:
         self,
         pipeline,
         datasets,
+        brush_path,
         model_high=None,
         model_low=None,
         prompt=None,
@@ -112,6 +119,9 @@ class Body2COLMAP_WorkflowComposer:
             pipeline_path = os.path.join(_PIPELINE_DIR, pipeline + ".yml")
 
         settings, steps = load_pipeline(pipeline_path, workflow_dir=_WORKFLOW_DIR)
+
+        # Node-level settings override anything in the pipeline YAML.
+        settings["brush_path"] = brush_path
 
         raw_lines = datasets.strip().splitlines()
         dataset_list = expand_datasets(raw_lines)
