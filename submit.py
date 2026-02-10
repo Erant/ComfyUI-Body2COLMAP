@@ -353,6 +353,9 @@ def fixup_placeholders(target_workflow, prompt, unique_id, settings=None):
     for nid, ndef in list(target_workflow.items()):
         if ndef.get("class_type") == "Body2COLMAP_Placeholder":
             key = ndef["inputs"]["key"]
+            # Skip if the key input is a node connection rather than a literal
+            if not isinstance(key, str):
+                continue
             placeholders[nid] = key
 
     if not placeholders:
