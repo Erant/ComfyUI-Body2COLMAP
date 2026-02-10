@@ -71,8 +71,6 @@ class Body2COLMAP_WorkflowComposer:
                         "Path to the brush executable (or 'brush' if in PATH)"
                     ),
                 }),
-            },
-            "optional": {
                 "model_high": ("MODEL", {
                     "tooltip": (
                         "High-detail model chain. Not used directly - its "
@@ -105,8 +103,8 @@ class Body2COLMAP_WorkflowComposer:
         pipeline,
         datasets,
         brush_path,
-        model_high=None,
-        model_low=None,
+        model_high,
+        model_low,
         prompt=None,
         unique_id=None,
     ):
