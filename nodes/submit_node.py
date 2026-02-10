@@ -106,7 +106,7 @@ class Body2COLMAP_WorkflowComposer:
                 workflow = copy.deepcopy(step["_prompt"])
                 patch_prompt(workflow, dataset, step, settings)
 
-                if step.get("fixup_models") and prompt is not None:
+                if prompt is not None:
                     fixup_placeholders(workflow, prompt, unique_id)
 
                 pid = queue_prompt(server, workflow)
