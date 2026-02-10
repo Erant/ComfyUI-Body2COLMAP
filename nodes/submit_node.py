@@ -176,7 +176,13 @@ class Body2COLMAP_WorkflowComposer:
                     step_overrides = {
                         k: v for k, v in step.items() if k not in STEP_KEYS
                     }
-                    merged = {**settings, **step_overrides}
+                    # Include dataset-prefixed paths so placeholders like
+                    # "input" / "output" resolve to "dataset/input" etc.
+                    path_overrides = {
+                        k: os.path.join(dataset, v)
+                        for k, v in step.get("paths", {}).items()
+                    }
+                    merged = {**settings, **step_overrides, **path_overrides}
                     fixup_placeholders(workflow, prompt, unique_id, settings=merged)
 
                 pid = queue_prompt(server, workflow)
