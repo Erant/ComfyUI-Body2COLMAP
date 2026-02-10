@@ -99,6 +99,20 @@ class Body2COLMAP_WorkflowComposer:
                         "that contain a Placeholder with key 'model_low'."
                     ),
                 }),
+                "clip": ("CLIP", {
+                    "tooltip": (
+                        "CLIP model. Not used directly - its ancestor "
+                        "subgraph is injected into workflow steps that "
+                        "contain a Placeholder with key 'clip'."
+                    ),
+                }),
+                "vae": ("VAE", {
+                    "tooltip": (
+                        "VAE model. Not used directly - its ancestor "
+                        "subgraph is injected into workflow steps that "
+                        "contain a Placeholder with key 'vae'."
+                    ),
+                }),
             },
             "hidden": {
                 "prompt": "PROMPT",
@@ -121,6 +135,8 @@ class Body2COLMAP_WorkflowComposer:
         height,
         model_high,
         model_low,
+        clip,
+        vae,
         prompt=None,
         unique_id=None,
     ):
