@@ -317,18 +317,29 @@ def extract_ancestor_subgraph(prompt, node_id, input_name):
     return subgraph, root_node_id, root_output_index
 
 
+def _is_connection(value):
+    """Return True if *value* looks like an API-format node connection."""
+    return (
+        isinstance(value, list)
+        and len(value) == 2
+        and isinstance(value[0], str)
+        and isinstance(value[1], int)
+    )
+
+
 def fixup_placeholders(target_workflow, prompt, unique_id):
-    """Replace Body2COLMAP_Placeholder nodes with subgraphs from the live workflow.
+    """Replace Body2COLMAP_Placeholder nodes in *target_workflow*.
 
-    For each Placeholder node found in *target_workflow*, this function:
+    Each Placeholder has a ``key`` that names an input on the
+    WorkflowComposer node (*unique_id*) in the live *prompt*.
 
-    1. Reads its ``key`` input (e.g. ``"model_high"``).
-    2. Extracts the ancestor subgraph connected to that same key on the
-       WorkflowComposer node identified by *unique_id* in *prompt*.
-    3. Remaps node IDs to avoid collisions with *target_workflow*.
-    4. Injects the remapped subgraph and rewires all consumers of the
-       placeholder to point at the subgraph root.
-    5. Removes the placeholder node.
+    * **Connection inputs** (e.g. ``model_high`` wired to a checkpoint
+      loader chain): the full ancestor subgraph is extracted, remapped to
+      avoid ID collisions, injected into *target_workflow*, and every
+      consumer of the placeholder is rewired to the subgraph root.
+
+    * **Literal inputs** (e.g. ``brush_path = "brush"``): every consumer
+      of the placeholder has its reference replaced with the literal value.
 
     Modifies *target_workflow* in-place.
     """
@@ -342,59 +353,89 @@ def fixup_placeholders(target_workflow, prompt, unique_id):
     if not placeholders:
         return
 
-    # Extract and merge subgraphs (shared ancestors naturally deduplicate)
-    merged_subgraph = {}
-    roots = {}  # placeholder_id -> (root_node_id, root_output_index)
+    # Look up the Composer node's inputs in the live prompt
+    composer = prompt.get(str(unique_id))
+    if composer is None:
+        raise ValueError(
+            f"WorkflowComposer node {unique_id} not found in prompt"
+        )
+    composer_inputs = composer.get("inputs", {})
+
+    # Classify each placeholder as subgraph (connection) or literal
+    subgraph_phs = {}   # placeholder_id -> key
+    literal_phs = {}    # placeholder_id -> (key, value)
 
     for placeholder_id, key in placeholders.items():
-        subgraph, root_id, root_slot = extract_ancestor_subgraph(
-            prompt, unique_id, key
-        )
-        if subgraph is None:
+        if key not in composer_inputs:
             raise ValueError(
-                f"Placeholder '{key}' has no matching connection on the "
-                f"WorkflowComposer node. Connect a model chain to the "
-                f"'{key}' input."
+                f"Placeholder '{key}' has no matching input on the "
+                f"WorkflowComposer node."
             )
-        merged_subgraph.update(subgraph)
-        roots[placeholder_id] = (root_id, root_slot)
+        value = composer_inputs[key]
+        if _is_connection(value):
+            subgraph_phs[placeholder_id] = key
+        else:
+            literal_phs[placeholder_id] = (key, value)
 
-    # Compute ID offset to avoid collisions
-    existing_int_ids = [int(nid) for nid in target_workflow if nid.isdigit()]
-    offset = max(existing_int_ids, default=0) + 1
+    # ---- Subgraph placeholders: extract, remap, inject, rewire ----------
 
-    # Build ID remap
-    id_map = {}
-    for old_id in merged_subgraph:
-        id_map[old_id] = str(int(old_id) + offset) if old_id.isdigit() else f"{old_id}_{offset}"
+    if subgraph_phs:
+        merged_subgraph = {}
+        roots = {}  # placeholder_id -> (root_node_id, root_output_index)
 
-    # Inject remapped subgraph nodes
-    for old_id, ndef in merged_subgraph.items():
-        new_def = copy.deepcopy(ndef)
-        for _key, val in new_def.get("inputs", {}).items():
-            if (
-                isinstance(val, list)
-                and len(val) == 2
-                and isinstance(val[0], str)
-                and val[0] in id_map
-            ):
-                val[0] = id_map[val[0]]
-        target_workflow[id_map[old_id]] = new_def
+        for placeholder_id, key in subgraph_phs.items():
+            subgraph, root_id, root_slot = extract_ancestor_subgraph(
+                prompt, unique_id, key
+            )
+            if subgraph is None:
+                raise ValueError(
+                    f"Placeholder '{key}' is connected on the Composer but "
+                    f"the ancestor subgraph could not be extracted."
+                )
+            merged_subgraph.update(subgraph)
+            roots[placeholder_id] = (root_id, root_slot)
 
-    # Rewire consumers of each placeholder, then remove placeholders
-    for placeholder_id, (root_id, root_slot) in roots.items():
-        remapped_root = id_map[root_id]
+        # Compute ID offset to avoid collisions
+        existing_int_ids = [int(nid) for nid in target_workflow if nid.isdigit()]
+        offset = max(existing_int_ids, default=0) + 1
+
+        id_map = {}
+        for old_id in merged_subgraph:
+            id_map[old_id] = (
+                str(int(old_id) + offset) if old_id.isdigit()
+                else f"{old_id}_{offset}"
+            )
+
+        # Inject remapped subgraph nodes
+        for old_id, ndef in merged_subgraph.items():
+            new_def = copy.deepcopy(ndef)
+            for _key, val in new_def.get("inputs", {}).items():
+                if _is_connection(val) and val[0] in id_map:
+                    val[0] = id_map[val[0]]
+            target_workflow[id_map[old_id]] = new_def
+
+        # Rewire consumers, then remove placeholders
+        for placeholder_id, (root_id, root_slot) in roots.items():
+            remapped_root = id_map[root_id]
+            for nid, ndef in target_workflow.items():
+                if nid == placeholder_id:
+                    continue
+                for _key, val in ndef.get("inputs", {}).items():
+                    if _is_connection(val) and str(val[0]) == placeholder_id:
+                        val[0] = remapped_root
+                        val[1] = root_slot
+            del target_workflow[placeholder_id]
+
+    # ---- Literal placeholders: replace references with the value --------
+
+    for placeholder_id, (key, value) in literal_phs.items():
         for nid, ndef in target_workflow.items():
             if nid == placeholder_id:
                 continue
-            for _key, val in ndef.get("inputs", {}).items():
-                if (
-                    isinstance(val, list)
-                    and len(val) == 2
-                    and str(val[0]) == placeholder_id
-                ):
-                    val[0] = remapped_root
-                    val[1] = root_slot
+            inputs = ndef.get("inputs", {})
+            for input_key, input_val in inputs.items():
+                if _is_connection(input_val) and str(input_val[0]) == placeholder_id:
+                    inputs[input_key] = value
         del target_workflow[placeholder_id]
 
 

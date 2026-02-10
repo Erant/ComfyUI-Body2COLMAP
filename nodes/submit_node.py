@@ -118,9 +118,6 @@ class Body2COLMAP_WorkflowComposer:
 
         settings, steps = load_pipeline(pipeline_path, workflow_dir=_WORKFLOW_DIR)
 
-        # Node-level settings override anything in the pipeline YAML.
-        settings["brush_path"] = brush_path
-
         raw_lines = datasets.strip().splitlines()
         dataset_list = expand_datasets(raw_lines)
         if not dataset_list:
