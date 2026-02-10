@@ -114,6 +114,13 @@ class Body2COLMAP_WorkflowComposer:
                         "contain a Placeholder with key 'vae'."
                     ),
                 }),
+                "seed": ("INT", {
+                    "default": 0,
+                    "min": 0,
+                    "max": 0xFFFFFFFFFFFFFFFF,
+                    "control_after_generate": True,
+                    "tooltip": "Seed value for workflow nodes with a 'seed' placeholder",
+                }),
             },
             "hidden": {
                 "prompt": "PROMPT",
@@ -138,6 +145,7 @@ class Body2COLMAP_WorkflowComposer:
         model_low,
         clip,
         vae,
+        seed,
         prompt=None,
         unique_id=None,
     ):
