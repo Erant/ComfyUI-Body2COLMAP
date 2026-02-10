@@ -98,6 +98,10 @@ def patch_prompt(prompt, dataset, step_args, settings):
         current = node_def["inputs"].get(field, "")
         title = node_def.get("_meta", {}).get("title", class_type)
 
+        # Skip if the field is a node connection (placeholder or otherwise)
+        if isinstance(current, list):
+            continue
+
         if current not in paths:
             print(
                 f"    [{node_id}] {title}: {field} = {current!r} "
