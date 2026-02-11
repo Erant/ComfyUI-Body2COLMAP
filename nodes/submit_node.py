@@ -72,20 +72,6 @@ class Body2COLMAP_WorkflowComposer:
                         "Path to the brush executable (or 'brush' if in PATH)"
                     ),
                 }),
-                "width": ("INT", {
-                    "default": 720,
-                    "min": 16,
-                    "max": 8192,
-                    "step": 16,
-                    "tooltip": "Output width for workflow nodes with a width input",
-                }),
-                "height": ("INT", {
-                    "default": 1280,
-                    "min": 16,
-                    "max": 8192,
-                    "step": 16,
-                    "tooltip": "Output height for workflow nodes with a height input",
-                }),
                 "model_high": ("MODEL", {
                     "tooltip": (
                         "High-detail model chain. Not used directly - its "
@@ -139,8 +125,6 @@ class Body2COLMAP_WorkflowComposer:
         pipeline,
         datasets,
         brush_path,
-        width,
-        height,
         model_high,
         model_low,
         clip,
