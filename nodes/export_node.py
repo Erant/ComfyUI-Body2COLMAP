@@ -183,12 +183,15 @@ class Body2COLMAP_ExportCOLMAP:
                 masks_np = masks.cpu().numpy()
                 alpha_channel = ((1.0 - masks_np) * 255).astype(np.uint8)  # Invert back for alpha
 
-                # Combine RGB with alpha
+                # Combine RGB with alpha (override existing alpha if present)
                 for i, (img, filename) in enumerate(zip(cv2_images, image_names)):
-                    # img is BGR from comfy_to_cv2, shape [H, W, 3]
-                    # Add alpha channel
                     alpha = alpha_channel[i]  # [H, W]
-                    rgba = np.dstack([img, alpha])  # [H, W, 4] - BGRA
+
+                    if img.shape[-1] == 4:
+                        rgba = img.copy()
+                        rgba[..., 3] = alpha
+                    else:
+                        rgba = np.dstack([img, alpha])  # [H, W, 4] - BGRA
 
                     img_path = output_path / filename
                     cv2.imwrite(str(img_path), rgba)
