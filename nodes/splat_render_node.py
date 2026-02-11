@@ -168,13 +168,20 @@ class Body2COLMAP_RenderSplat:
 
         if path_config is not None:
             # Generate cameras from path configuration
-            cameras = self._cameras_from_path(
+            cameras, focal_length = self._cameras_from_path(
                 path_config, b2c_data, splat_scene,
                 width, height, focal_length_mm, fill_ratio
             )
         else:
             # Reuse cameras from b2c_data
             cameras = b2c_data["cameras"]
+            # Determine focal length: explicit override, inherited, or default
+            if focal_length_mm > 0:
+                focal_length = focal_length_mm_to_pixels(focal_length_mm, width)
+            elif b2c_data and "focal_length" in b2c_data:
+                focal_length = b2c_data["focal_length"]
+            else:
+                focal_length = compute_default_focal_length(width)
             logger.info(
                 f"[Body2COLMAP] Reusing {len(cameras)} cameras from b2c_data"
             )
@@ -258,6 +265,7 @@ class Body2COLMAP_RenderSplat:
             "image_names": image_names,
             "points_3d": (points, colors),
             "resolution": (width, height),
+            "focal_length": focal_length,
         }
 
         # Pass through metadata from mesh renderer for downstream reuse
@@ -270,12 +278,18 @@ class Body2COLMAP_RenderSplat:
 
     def _cameras_from_path(self, path_config, b2c_data, splat_scene,
                            width, height, focal_length_mm, fill_ratio):
-        """Generate cameras from a path configuration."""
-        # Determine focal length in pixels
-        if focal_length_mm <= 0:
-            focal_length = compute_default_focal_length(width)
-        else:
+        """Generate cameras from a path configuration.
+
+        Returns (cameras, focal_length) where focal_length is in pixels.
+        """
+        # Determine focal length in pixels:
+        # explicit override > inherited from b2c_data > auto-compute default
+        if focal_length_mm > 0:
             focal_length = focal_length_mm_to_pixels(focal_length_mm, width)
+        elif b2c_data and "focal_length" in b2c_data:
+            focal_length = b2c_data["focal_length"]
+        else:
+            focal_length = compute_default_focal_length(width)
 
         # Get framing preset from path config
         framing = path_config.get("framing", "full")
@@ -362,4 +376,4 @@ class Body2COLMAP_RenderSplat:
             f"[Body2COLMAP] Camera path created: {len(cameras)} cameras "
             f"({time.time() - t0:.2f}s)"
         )
-        return cameras
+        return cameras, focal_length
