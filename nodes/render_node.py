@@ -12,7 +12,7 @@ from body2colmap.face import FaceLandmarkIngest
 from body2colmap.utils import compute_default_focal_length, compute_auto_orbit_radius
 from ..core.sam3d_adapter import sam3d_output_to_scene
 from ..core.comfy_utils import rendered_to_comfy
-from ..core.camera_utils import focal_length_mm_to_pixels, focal_length_pixels_to_mm
+from ..core.camera_utils import focal_length_mm_to_pixels
 
 logger = logging.getLogger(__name__)
 
@@ -245,10 +245,8 @@ class Body2COLMAP_Render:
         if focal_length_mm <= 0:
             # Auto-compute default (~43mm equivalent, ~47° FOV)
             focal_length = compute_default_focal_length(width)
-            effective_focal_length_mm = focal_length_pixels_to_mm(focal_length, width)
         else:
             focal_length = focal_length_mm_to_pixels(focal_length_mm, width)
-            effective_focal_length_mm = focal_length_mm
 
         # Compute ALL framing bounds for metadata (allows splat renderer to choose later)
         logger.info("[Body2COLMAP] Computing framing bounds for all presets...")
@@ -482,7 +480,7 @@ class Body2COLMAP_Render:
             "image_names": image_names,
             "points_3d": (points, colors),
             "resolution": (width, height),
-            "focal_length_mm": effective_focal_length_mm,  # 35mm equivalent, resolution-independent
+            "focal_length_mm": focal_length_mm,  # 0 = auto, >0 = explicit 35mm equivalent
             "framing_bounds": all_framing_bounds,  # Dict of all computed framing bounds
             "initial_rotation": initial_rotation,  # For splat renderer to reuse
         }

@@ -8,7 +8,7 @@ from body2colmap.path import OrbitPath
 from body2colmap.camera import Camera
 from body2colmap.utils import compute_default_focal_length, compute_auto_orbit_radius
 from ..core.comfy_utils import rendered_to_comfy
-from ..core.camera_utils import focal_length_mm_to_pixels, focal_length_pixels_to_mm
+from ..core.camera_utils import focal_length_mm_to_pixels
 
 logger = logging.getLogger(__name__)
 
@@ -166,22 +166,20 @@ class Body2COLMAP_RenderSplat:
             f"{len(splat_scene)} Gaussians, SH degree {splat_scene.sh_degree}"
         )
 
+        # Resolve focal length: node override > inherited from b2c_data > auto
+        effective_mm = focal_length_mm
+        if effective_mm <= 0 and b2c_data:
+            effective_mm = b2c_data.get("focal_length_mm", 0.0)
+
         if path_config is not None:
             # Generate cameras from path configuration
             cameras, focal_length = self._cameras_from_path(
                 path_config, b2c_data, splat_scene,
-                width, height, focal_length_mm, fill_ratio
+                width, height, effective_mm, fill_ratio
             )
         else:
             # Reuse cameras from b2c_data
             cameras = b2c_data["cameras"]
-            # Determine focal length: explicit override, inherited, or default
-            if focal_length_mm > 0:
-                effective_mm = focal_length_mm
-            elif b2c_data and "focal_length_mm" in b2c_data:
-                effective_mm = b2c_data["focal_length_mm"]
-            else:
-                effective_mm = 0.0
             if effective_mm > 0:
                 focal_length = focal_length_mm_to_pixels(effective_mm, width)
             else:
@@ -269,7 +267,7 @@ class Body2COLMAP_RenderSplat:
             "image_names": image_names,
             "points_3d": (points, colors),
             "resolution": (width, height),
-            "focal_length_mm": focal_length_pixels_to_mm(focal_length, width),
+            "focal_length_mm": effective_mm,  # 0 = auto, >0 = explicit 35mm equivalent
         }
 
         # Pass through metadata from mesh renderer for downstream reuse
@@ -286,12 +284,8 @@ class Body2COLMAP_RenderSplat:
 
         Returns (cameras, focal_length) where focal_length is in pixels.
         """
-        # Determine focal length in pixels:
-        # explicit override > inherited from b2c_data > auto-compute default
         if focal_length_mm > 0:
             focal_length = focal_length_mm_to_pixels(focal_length_mm, width)
-        elif b2c_data and "focal_length_mm" in b2c_data:
-            focal_length = focal_length_mm_to_pixels(b2c_data["focal_length_mm"], width)
         else:
             focal_length = compute_default_focal_length(width)
 
