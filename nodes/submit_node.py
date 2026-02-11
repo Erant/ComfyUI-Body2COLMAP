@@ -74,14 +74,14 @@ class Body2COLMAP_WorkflowComposer:
                 }),
                 "width": ("INT", {
                     "default": 720,
-                    "min": 1,
+                    "min": 16,
                     "max": 8192,
                     "step": 16,
                     "tooltip": "Output width for workflow nodes with a width input",
                 }),
                 "height": ("INT", {
                     "default": 1280,
-                    "min": 1,
+                    "min": 16,
                     "max": 8192,
                     "step": 16,
                     "tooltip": "Output height for workflow nodes with a height input",
