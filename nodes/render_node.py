@@ -6,10 +6,14 @@ import time
 import numpy as np
 import comfy.utils
 from body2colmap.renderer import Renderer
-from body2colmap.path import OrbitPath
+from body2colmap.path import OrbitPath, compute_original_camera_orbit_params
 from body2colmap.camera import Camera
 from body2colmap.face import FaceLandmarkIngest
-from body2colmap.utils import compute_default_focal_length, compute_auto_orbit_radius
+from body2colmap.utils import (
+    compute_default_focal_length,
+    compute_auto_orbit_radius,
+    compute_original_view_framing,
+)
 from ..core.sam3d_adapter import sam3d_output_to_scene
 from ..core.comfy_utils import rendered_to_comfy
 from ..core.camera_utils import focal_length_mm_to_pixels
@@ -22,12 +26,13 @@ class Body2COLMAP_Render:
 
     CATEGORY = "Body2COLMAP"
     FUNCTION = "render"
-    RETURN_TYPES = ("IMAGE", "MASK", "B2C_COLMAP_METADATA")
-    RETURN_NAMES = ("images", "masks", "b2c_data")
+    RETURN_TYPES = ("IMAGE", "MASK", "B2C_COLMAP_METADATA", "B2C_IMAGE_WARP")
+    RETURN_NAMES = ("images", "masks", "b2c_data", "image_warp")
     OUTPUT_TOOLTIPS = (
         "Batch of rendered RGB images (connect to SaveImage or PreviewImage)",
         "Batch of alpha masks for each image",
-        "Body2COLMAP dataset metadata (connect to ExportCOLMAP or SaveDataset)"
+        "Body2COLMAP dataset metadata (connect to ExportCOLMAP or SaveDataset)",
+        "Image warp data for Generate FirstLast (only when override_cam_from_mesh is enabled)"
     )
 
     @classmethod
@@ -186,6 +191,16 @@ class Body2COLMAP_Render:
                     "step": 1000,
                     "tooltip": "Number of points to sample from mesh for COLMAP initialization"
                 }),
+
+                # Original camera override
+                "override_cam_from_mesh": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": (
+                        "Use the original camera position from the mesh data instead of "
+                        "path elevation/azimuth/radius. Only works with Circular Path. "
+                        "Enables B2C_IMAGE_WARP output for the Generate FirstLast node."
+                    )
+                }),
             }
         }
 
@@ -198,7 +213,8 @@ class Body2COLMAP_Render:
                depth_colormap="grayscale",
                face_landmarks=None, face_mode="full",
                face_max_angle=90.0,
-               pointcloud_samples=10000):
+               pointcloud_samples=10000,
+               override_cam_from_mesh=False):
         """
         Render all camera positions and return batch of images + masks.
 
@@ -206,9 +222,18 @@ class Body2COLMAP_Render:
             images: Tensor of shape [N, H, W, 3] in [0,1] range (ComfyUI IMAGE format)
             masks: Tensor of shape [N, H, W] in [0,1] range (alpha channel)
             b2c_data: B2C_COLMAP_METADATA with cameras, point cloud, and image names
+            image_warp: B2C_IMAGE_WARP warp data (only when override_cam_from_mesh=True)
         """
         # Get framing preset from path config
         framing = path_config.get("framing", "full")
+        pattern = path_config["pattern"]
+
+        # Validate override_cam_from_mesh constraints
+        if override_cam_from_mesh and pattern != "circular":
+            raise ValueError(
+                f"override_cam_from_mesh only works with Circular Path, "
+                f"got '{pattern}' path. Please use a Circular Path node."
+            )
 
         # Convert SAM3D output to Scene
         # Always load skeleton if available to compute all framing bounds for metadata
@@ -218,35 +243,39 @@ class Body2COLMAP_Render:
         scene = sam3d_output_to_scene(mesh_data, include_skeleton=include_skeleton)
         logger.info(f"[Body2COLMAP] Scene conversion complete ({time.time() - t0:.2f}s)")
 
-        # Auto-orient: rotate body to face camera at frame 0, then apply user offset
-        initial_rotation = path_config.get("initial_rotation", 0.0)
-        facing = scene.compute_torso_facing_direction()
-        if facing is not None:
-            current_angle = float(np.arctan2(facing[0], facing[2]))
-            target_angle = float(np.arctan2(0.0, -1.0))  # face -Z (toward camera)
-            correction_deg = float(np.degrees(target_angle - current_angle))
-        else:
-            correction_deg = 0.0
-        total_rotation = correction_deg + initial_rotation
-        scene.rotate_around_y(total_rotation)
-        if facing is not None:
-            logger.info(
-                f"[Body2COLMAP] Auto-orient: correction={correction_deg:.1f}° + "
-                f"offset={initial_rotation:.1f}° = {total_rotation:.1f}°"
-            )
-        elif initial_rotation != 0.0:
-            logger.info(
-                f"[Body2COLMAP] No skeleton for auto-orient, "
-                f"applying raw rotation={initial_rotation:.1f}°"
-            )
+        # Extract original focal length from mesh data (needed for override mode)
+        original_focal_length = float(mesh_data["focal_length"]) if override_cam_from_mesh else None
 
-        # Determine focal length in pixels
-        # Convert from mm (35mm full-frame equivalent) to pixels
-        if focal_length_mm <= 0:
-            # Auto-compute default (~43mm equivalent, ~47° FOV)
-            focal_length = compute_default_focal_length(width)
+        if override_cam_from_mesh:
+            # In override mode, skip auto-orient to preserve the original
+            # camera-mesh relationship. The orbit parameters are derived
+            # from the mesh's position relative to the origin (original camera).
+            logger.info(
+                "[Body2COLMAP] override_cam_from_mesh=True: skipping auto-orient, "
+                "deriving orbit from original camera position"
+            )
         else:
-            focal_length = focal_length_mm_to_pixels(focal_length_mm, width)
+            # Auto-orient: rotate body to face camera at frame 0, then apply user offset
+            initial_rotation = path_config.get("initial_rotation", 0.0)
+            facing = scene.compute_torso_facing_direction()
+            if facing is not None:
+                current_angle = float(np.arctan2(facing[0], facing[2]))
+                target_angle = float(np.arctan2(0.0, -1.0))  # face -Z (toward camera)
+                correction_deg = float(np.degrees(target_angle - current_angle))
+            else:
+                correction_deg = 0.0
+            total_rotation = correction_deg + initial_rotation
+            scene.rotate_around_y(total_rotation)
+            if facing is not None:
+                logger.info(
+                    f"[Body2COLMAP] Auto-orient: correction={correction_deg:.1f}° + "
+                    f"offset={initial_rotation:.1f}° = {total_rotation:.1f}°"
+                )
+            elif initial_rotation != 0.0:
+                logger.info(
+                    f"[Body2COLMAP] No skeleton for auto-orient, "
+                    f"applying raw rotation={initial_rotation:.1f}°"
+                )
 
         # Compute ALL framing bounds for metadata (allows splat renderer to choose later)
         logger.info("[Body2COLMAP] Computing framing bounds for all presets...")
@@ -266,7 +295,6 @@ class Body2COLMAP_Render:
             logger.info("[Body2COLMAP] No skeleton data - only 'full' framing available")
 
         # Get bounds for the selected framing preset
-        pattern = path_config["pattern"]
         params = path_config["params"].copy()  # Don't modify original
 
         if framing in all_framing_bounds:
@@ -282,55 +310,109 @@ class Body2COLMAP_Render:
         # Compute orbit center from selected framing bounds
         orbit_center = (current_bounds[0] + current_bounds[1]) / 2.0
 
-        # Auto-compute radius if not specified in path config
-        if params.get("radius") is None:
-            params["radius"] = compute_auto_orbit_radius(
-                bounds=current_bounds,
+        # --- Camera path generation ---
+        image_warp = None
+
+        if override_cam_from_mesh:
+            # Original-camera mode: derive orbit parameters from mesh geometry
+            framing_info = compute_original_view_framing(
+                vertices=scene.vertices,
                 render_size=(width, height),
-                focal_length=focal_length,
-                fill_ratio=fill_ratio
+                original_focal_length=original_focal_length,
+                fill_ratio=fill_ratio,
+            )
+            framed_fl = framing_info['framed_focal_length']
+
+            orbit_params = compute_original_camera_orbit_params(orbit_center)
+            derived_radius = float(orbit_params['radius'])
+            derived_azimuth = orbit_params['start_azimuth_deg']
+            derived_elevation = orbit_params['elevation_deg']
+
+            logger.info(
+                f"[Body2COLMAP] Original camera orbit: radius={derived_radius:.3f}, "
+                f"azimuth={derived_azimuth:.1f}°, elevation={derived_elevation:.1f}°, "
+                f"framed_fl={framed_fl:.1f}px"
             )
 
-        # Create camera template
-        camera_template = Camera(
-            focal_length=(focal_length, focal_length),
-            image_size=(width, height)
-        )
+            camera_template = Camera(
+                focal_length=(framed_fl, framed_fl),
+                image_size=(width, height)
+            )
 
-        # Create OrbitPath and generate cameras based on pattern
-        logger.info(f"[Body2COLMAP] Creating camera path: {pattern} with radius={params['radius']:.3f}")
-        t0 = time.time()
-        path_gen = OrbitPath(target=orbit_center, radius=params["radius"])
-
-        if pattern == "circular":
+            path_gen = OrbitPath(target=orbit_center, radius=derived_radius)
             cameras = path_gen.circular(
                 n_frames=params["n_frames"],
-                elevation_deg=params["elevation_deg"],
-                start_azimuth_deg=params.get("start_azimuth_deg", 0.0),
+                elevation_deg=derived_elevation,
+                start_azimuth_deg=derived_azimuth,
                 overlap=params.get("overlap", 1),
-                camera_template=camera_template
+                camera_template=camera_template,
             )
-        elif pattern == "sinusoidal":
-            cameras = path_gen.sinusoidal(
-                n_frames=params["n_frames"],
-                amplitude_deg=params["amplitude_deg"],
-                n_cycles=params["n_cycles"],
-                start_azimuth_deg=params.get("start_azimuth_deg", 0.0),
-                camera_template=camera_template
-            )
-        elif pattern == "helical":
-            cameras = path_gen.helical(
-                n_frames=params["n_frames"],
-                n_loops=params["n_loops"],
-                amplitude_deg=params["amplitude_deg"],
-                lead_in_deg=params.get("lead_in_deg", 45.0),
-                lead_out_deg=params.get("lead_out_deg", 45.0),
-                start_azimuth_deg=params.get("start_azimuth_deg", 0.0),
-                camera_template=camera_template
-            )
+
+            # Build image warp data for Generate FirstLast
+            image_warp = {
+                "camera": cameras[0],
+                "original_focal_length": original_focal_length,
+                "render_size": (width, height),
+            }
+
+            # Use framed focal length for downstream
+            focal_length = framed_fl
         else:
-            raise ValueError(f"Unknown path pattern: {pattern}")
-        logger.info(f"[Body2COLMAP] Camera path created: {len(cameras)} cameras ({time.time() - t0:.2f}s)")
+            # Standard mode: use path config parameters
+            # Determine focal length in pixels
+            if focal_length_mm <= 0:
+                focal_length = compute_default_focal_length(width)
+            else:
+                focal_length = focal_length_mm_to_pixels(focal_length_mm, width)
+
+            # Auto-compute radius if not specified in path config
+            if params.get("radius") is None:
+                params["radius"] = compute_auto_orbit_radius(
+                    bounds=current_bounds,
+                    render_size=(width, height),
+                    focal_length=focal_length,
+                    fill_ratio=fill_ratio
+                )
+
+            camera_template = Camera(
+                focal_length=(focal_length, focal_length),
+                image_size=(width, height)
+            )
+
+            logger.info(f"[Body2COLMAP] Creating camera path: {pattern} with radius={params['radius']:.3f}")
+            t0 = time.time()
+            path_gen = OrbitPath(target=orbit_center, radius=params["radius"])
+
+            if pattern == "circular":
+                cameras = path_gen.circular(
+                    n_frames=params["n_frames"],
+                    elevation_deg=params["elevation_deg"],
+                    start_azimuth_deg=params.get("start_azimuth_deg", 0.0),
+                    overlap=params.get("overlap", 1),
+                    camera_template=camera_template
+                )
+            elif pattern == "sinusoidal":
+                cameras = path_gen.sinusoidal(
+                    n_frames=params["n_frames"],
+                    amplitude_deg=params["amplitude_deg"],
+                    n_cycles=params["n_cycles"],
+                    start_azimuth_deg=params.get("start_azimuth_deg", 0.0),
+                    camera_template=camera_template
+                )
+            elif pattern == "helical":
+                cameras = path_gen.helical(
+                    n_frames=params["n_frames"],
+                    n_loops=params["n_loops"],
+                    amplitude_deg=params["amplitude_deg"],
+                    lead_in_deg=params.get("lead_in_deg", 45.0),
+                    lead_out_deg=params.get("lead_out_deg", 45.0),
+                    start_azimuth_deg=params.get("start_azimuth_deg", 0.0),
+                    camera_template=camera_template
+                )
+            else:
+                raise ValueError(f"Unknown path pattern: {pattern}")
+
+        logger.info(f"[Body2COLMAP] Camera path created: {len(cameras)} cameras")
 
         # Prepare render colors
         mesh_color = (mesh_color_r, mesh_color_g, mesh_color_b)
@@ -482,7 +564,7 @@ class Body2COLMAP_Render:
             "resolution": (width, height),
             "focal_length_mm": focal_length_mm,  # 0 = auto, >0 = explicit 35mm equivalent
             "framing_bounds": all_framing_bounds,  # Dict of all computed framing bounds
-            "initial_rotation": initial_rotation,  # For splat renderer to reuse
+            "initial_rotation": path_config.get("initial_rotation", 0.0),  # For splat renderer to reuse
         }
 
-        return (images_tensor, masks_tensor, b2c_data)
+        return (images_tensor, masks_tensor, b2c_data, image_warp)
