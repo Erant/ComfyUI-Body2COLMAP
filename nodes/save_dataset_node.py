@@ -85,11 +85,11 @@ class Body2COLMAP_SaveDataset:
     OUTPUT_NODE = True
     OUTPUT_TOOLTIPS = ("Path to the saved dataset directory",)
 
-    # Tell ComfyUI to collect all batch outputs into lists
-    INPUT_IS_LIST = {
-        "images": True,
-        "masks": True,
-    }
+    # Tell ComfyUI to collect all batch outputs into lists.
+    # This must be True (all inputs) rather than a partial dict —
+    # partial INPUT_IS_LIST can cause ComfyUI to resolve list-mode
+    # inputs from the wrong graph position, bypassing intermediate nodes.
+    INPUT_IS_LIST = True
 
     @classmethod
     def INPUT_TYPES(cls):
