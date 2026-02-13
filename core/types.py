@@ -71,7 +71,7 @@ class B2C_FACE_LANDMARKS(TypedDict):
     image_size: Tuple[int, int]
 
 
-class B2C_IMAGE_WARP(TypedDict):
+class B2C_IMAGE_WARP(TypedDict, total=False):
     """Warp data for transforming a reference image to match a rendered view.
 
     Produced by the Render node when ``override_cam_from_mesh`` is enabled.
@@ -80,12 +80,15 @@ class B2C_IMAGE_WARP(TypedDict):
 
     Attributes:
         camera: Camera object for frame 0 (framed intrinsics + look_at rotation).
-        original_focal_length: SAM-3D-Body focal length in pixels.
+        original_focal_length: SAM-3D-Body focal length in pixels (for the
+            original photo resolution — not render_size).
         render_size: (width, height) of the rendered output.
+        bg_color: Mesh background color as (r, g, b) floats in [0, 1].
     """
-    camera: Any  # body2colmap Camera object
-    original_focal_length: float
-    render_size: Tuple[int, int]
+    camera: Any  # body2colmap Camera object  [required]
+    original_focal_length: float  # [required]
+    render_size: Tuple[int, int]  # [required]
+    bg_color: Tuple[float, float, float]  # [optional]
 
 
 # Custom type identifier for Gaussian Splat scenes

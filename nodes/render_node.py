@@ -418,6 +418,11 @@ class Body2COLMAP_Render:
         mesh_color = (mesh_color_r, mesh_color_g, mesh_color_b)
         bg_color = (bg_color_r, bg_color_g, bg_color_b)
 
+        # Attach bg_color to image_warp so GenerateFirstLast can use it
+        # for out-of-bounds fill.
+        if image_warp is not None:
+            image_warp["bg_color"] = bg_color
+
         # Map "grayscale" to None (no colormap = grayscale depth)
         depth_cmap = None if depth_colormap == "grayscale" else depth_colormap
 

@@ -61,16 +61,15 @@ class Body2COLMAP_GenerateFirstLast:
         img_uint8 = (img_np * 255).clip(0, 255).astype(np.uint8)
         h_img, w_img = img_uint8.shape[:2]
 
-        # Scale the focal length to match the actual reference image
-        # dimensions.  The SAM3D focal_length corresponds to the render
-        # resolution; if the reference image is a different size we need
-        # to adjust so the intrinsics matrix K_orig is consistent.
-        scale = w_img / render_w
-        scaled_focal_length = original_focal_length * scale
+        # The SAM3D focal_length is in pixels for the original photo
+        # resolution.  compute_warp_to_camera builds K_orig from this FL
+        # and original_image_size, so the resolution difference between
+        # the reference image and the render is handled automatically by
+        # the homography K_target @ R @ inv(K_orig).  No manual scaling.
 
         logger.info(
             f"[Body2COLMAP] GenerateFirstLast: ref={w_img}x{h_img}, "
-            f"render={render_w}x{render_h}, fl_scale={scale:.3f}"
+            f"render={render_w}x{render_h}, fl={original_focal_length:.1f}"
         )
 
         # Check whether the camera rotation is identity (pure zoom+shift)
@@ -79,11 +78,18 @@ class Body2COLMAP_GenerateFirstLast:
             camera.rotation, np.eye(3), atol=1e-5
         )
 
-        border_color = (255, 255, 255)  # white fill for out-of-bounds pixels
+        # Background color: use the mesh render bg_color when available,
+        # fall back to white.
+        bg_rgb = image_warp.get("bg_color", (1.0, 1.0, 1.0))
+        border_color = (
+            int(round(bg_rgb[0] * 255)),
+            int(round(bg_rgb[1] * 255)),
+            int(round(bg_rgb[2] * 255)),
+        )
 
         if is_identity_rotation:
             # Pure affine: scale + translate (fast path)
-            s = float(camera.fx / scaled_focal_length)
+            s = float(camera.fx / original_focal_length)
             tx = camera.cx - s * w_img / 2.0
             ty = camera.cy - s * h_img / 2.0
             M = np.array([[s, 0.0, tx],
@@ -97,7 +103,7 @@ class Body2COLMAP_GenerateFirstLast:
         else:
             # Full homography: accounts for rotation + intrinsic change
             H = compute_warp_to_camera(
-                original_focal_length=scaled_focal_length,
+                original_focal_length=original_focal_length,
                 original_image_size=(w_img, h_img),
                 target_camera=camera,
             )
