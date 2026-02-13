@@ -556,6 +556,19 @@ class Body2COLMAP_Render:
         # Generate standardized filenames (1-based indexing with trailing underscore)
         image_names = [f"frame_{i+1:05d}_.png" for i in range(len(cameras))]
 
+        # Determine forward azimuth: the orbit azimuth that corresponds to
+        # looking at the front of the skeleton.
+        if override_cam_from_mesh:
+            # The original camera was at the origin looking at the subject.
+            # derived_azimuth is the orbit azimuth that places the camera
+            # back at the origin, so it equals "front".
+            forward_azimuth_deg = float(derived_azimuth)
+        else:
+            # After auto-orient the skeleton faces -Z, and OrbitPath azimuth
+            # 0° = -Z direction, so forward is always 0° regardless of
+            # start_azimuth_deg.
+            forward_azimuth_deg = 0.0
+
         # Package metadata for serialization (no scene object - not serializable)
         b2c_data = {
             "cameras": cameras,
@@ -565,6 +578,8 @@ class Body2COLMAP_Render:
             "focal_length_mm": focal_length_mm,  # 0 = auto, >0 = explicit 35mm equivalent
             "framing_bounds": all_framing_bounds,  # Dict of all computed framing bounds
             "initial_rotation": path_config.get("initial_rotation", 0.0),  # For splat renderer to reuse
+            "orbit_target": orbit_center,  # np.ndarray(3,) — orbit center point
+            "forward_azimuth_deg": forward_azimuth_deg,  # Orbit azimuth that = skeleton front
         }
 
         return (images_tensor, masks_tensor, b2c_data, image_warp)

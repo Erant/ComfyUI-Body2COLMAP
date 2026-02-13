@@ -69,6 +69,7 @@ from .nodes.face_landmarks_node import Body2COLMAP_DetectFaceLandmarks
 from .nodes.placeholder_node import Body2COLMAP_Placeholder
 from .nodes.submit_node import Body2COLMAP_WorkflowComposer
 from .nodes.generate_firstlast_node import Body2COLMAP_GenerateFirstLast
+from .nodes.filter_fov_node import Body2COLMAP_FilterFoV
 
 # Node class mappings for ComfyUI
 NODE_CLASS_MAPPINGS = {
@@ -89,6 +90,7 @@ NODE_CLASS_MAPPINGS = {
     "Body2COLMAP_Placeholder": Body2COLMAP_Placeholder,
     "Body2COLMAP_WorkflowComposer": Body2COLMAP_WorkflowComposer,
     "Body2COLMAP_GenerateFirstLast": Body2COLMAP_GenerateFirstLast,
+    "Body2COLMAP_FilterFoV": Body2COLMAP_FilterFoV,
 }
 
 # Display names for ComfyUI node menu
@@ -110,6 +112,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Body2COLMAP_Placeholder": "🔌 Placeholder",
     "Body2COLMAP_WorkflowComposer": "🎼 Workflow Composer",
     "Body2COLMAP_GenerateFirstLast": "🔄 Generate FirstLast",
+    "Body2COLMAP_FilterFoV": "🔭 Filter FoV",
 }
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]
