@@ -94,24 +94,53 @@ class Body2COLMAP_RotateViews:
         # Find the view closest to the target azimuth
         target = _normalize_angle(start_azimuth_deg)
         diffs = [abs(_normalize_angle(az - target)) for az in azimuths]
-        best_idx = int(np.argmin(diffs))
+        ranked = sorted(range(n_views), key=lambda i: diffs[i])
+        best_idx = ranked[0]
 
-        if best_idx == 0:
+        # Detect a twin: a second camera also near the target azimuth.
+        # When two cameras share an azimuth (e.g. a stereo pair), we put one
+        # at frame_00001 and the other at frame_N so they are as far apart as
+        # possible in the sequence — ideal for FirstLast diffusion.
+        angular_step = 360.0 / n_views
+        twin_idx = None
+        if n_views >= 2 and diffs[ranked[1]] <= angular_step * 0.75:
+            twin_idx = ranked[1]
+
+        if twin_idx is not None:
+            # Choose traversal direction so the twin lands at position N-1.
+            forward_dist = (twin_idx - best_idx) % n_views
+            if forward_dist <= n_views // 2:
+                # Twin is close ahead → go backward so it ends up last
+                order = [(best_idx - i) % n_views for i in range(n_views)]
+            else:
+                # Twin is close behind → forward already puts it last
+                order = [(best_idx + i) % n_views for i in range(n_views)]
+
             logger.info(
-                "[Body2COLMAP] RotateViews: start_azimuth=%.1f° → view 1 "
-                "(azimuth %.1f°) is already first, no change",
-                start_azimuth_deg, azimuths[0]
+                "[Body2COLMAP] RotateViews: start_azimuth=%.1f° → view %d "
+                "(az %.1f°) as frame_00001, twin view %d (az %.1f°) as "
+                "frame_%05d (split for FirstLast)",
+                start_azimuth_deg,
+                best_idx + 1, azimuths[best_idx],
+                twin_idx + 1, azimuths[twin_idx],
+                n_views,
             )
-            return (b2c_data, images, masks)
+        else:
+            order = [(best_idx + i) % n_views for i in range(n_views)]
 
-        logger.info(
-            "[Body2COLMAP] RotateViews: start_azimuth=%.1f° → view %d "
-            "(azimuth %.1f°) becomes frame_00001",
-            start_azimuth_deg, best_idx + 1, azimuths[best_idx]
-        )
+            if order == list(range(n_views)):
+                logger.info(
+                    "[Body2COLMAP] RotateViews: start_azimuth=%.1f° → view 1 "
+                    "(azimuth %.1f°) is already first, no change",
+                    start_azimuth_deg, azimuths[0]
+                )
+                return (b2c_data, images, masks)
 
-        # Build new order starting from best_idx
-        order = [(best_idx + i) % n_views for i in range(n_views)]
+            logger.info(
+                "[Body2COLMAP] RotateViews: start_azimuth=%.1f° → view %d "
+                "(azimuth %.1f°) becomes frame_00001",
+                start_azimuth_deg, best_idx + 1, azimuths[best_idx]
+            )
 
         # Reorder tensors
         order_tensor = torch.tensor(order, dtype=torch.long)
