@@ -199,8 +199,9 @@ class Body2COLMAP_SaveDataset:
                     )
                 masks = masks[0]
 
-        # Build output path
-        base_path = Path(folder_paths.get_output_directory()) / output_directory
+        # Build output path (absolute paths used as-is, relative paths resolve under ComfyUI output)
+        dir_path = Path(output_directory)
+        base_path = dir_path if dir_path.is_absolute() else Path(folder_paths.get_output_directory()) / output_directory
 
         if auto_increment:
             # Create numbered directory

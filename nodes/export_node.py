@@ -160,8 +160,9 @@ class Body2COLMAP_ExportCOLMAP:
         points_3d = b2c_data["points_3d"]
         width, height = b2c_data["resolution"]
 
-        # Build output path
-        base_path = Path(folder_paths.get_output_directory()) / output_directory
+        # Build output path (absolute paths used as-is, relative paths resolve under ComfyUI output)
+        dir_path = Path(output_directory)
+        base_path = dir_path if dir_path.is_absolute() else Path(folder_paths.get_output_directory()) / output_directory
 
         if auto_increment:
             # Create numbered directory

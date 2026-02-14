@@ -145,8 +145,9 @@ class Body2COLMAP_LoadDataset:
             reference_image: ComfyUI IMAGE tensor (or empty if not present)
             prompt: Prompt text string (or empty if not present)
         """
-        # Build full path
-        dataset_path = Path(folder_paths.get_output_directory()) / directory
+        # Build full path (absolute paths used as-is, relative paths resolve under ComfyUI output)
+        dir_path = Path(directory)
+        dataset_path = dir_path if dir_path.is_absolute() else Path(folder_paths.get_output_directory()) / directory
 
         if not dataset_path.exists():
             raise FileNotFoundError(f"Dataset directory not found: {dataset_path}")
