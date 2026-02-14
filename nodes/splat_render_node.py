@@ -270,12 +270,16 @@ class Body2COLMAP_RenderSplat:
             "focal_length_mm": effective_mm,  # 0 = auto, >0 = explicit 35mm equivalent
         }
 
-        # Pass through metadata from mesh renderer for downstream reuse
+        # Pass through extra metadata (b2c_extras, render hints, etc.) so
+        # downstream nodes work without an explicit allowlist for every key.
+        # Skip keys that we rebuild ourselves, plus splat_path (the input
+        # path is not meaningful for our freshly-rendered output).
+        _REBUILT_KEYS = {"cameras", "image_names", "points_3d", "resolution",
+                         "focal_length_mm", "splat_path"}
         if b2c_data:
-            for key in ("framing_bounds", "initial_rotation", "orbit_target",
-                       "forward_azimuth_deg"):
-                if key in b2c_data:
-                    b2c_output[key] = b2c_data[key]
+            for key, value in b2c_data.items():
+                if key not in _REBUILT_KEYS:
+                    b2c_output[key] = value
 
         return (images_tensor, masks_tensor, b2c_output)
 
