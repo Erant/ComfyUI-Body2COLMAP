@@ -26,10 +26,12 @@ def _scene_scale(positions):
 class Body2COLMAP_ReplaceViews:
     """Replace views in a base dataset with matching views from a second dataset.
 
-    For every camera in the replacement set, find the closest camera in the
-    base set.  If the normalised position distance is below the tolerance
-    threshold, the base view (camera, image, mask) is replaced by the
-    replacement view.  The output is always the same size as the base set.
+    For every camera in the base set, find the closest camera in the
+    replacement set.  If the normalised position distance is below the
+    tolerance threshold, the base view (camera, image, mask) is replaced
+    by the replacement view.  The output is always the same size as the
+    base set.  Multiple base cameras at the same location (e.g. from
+    orbit overlap) will each find their closest replacement independently.
 
     Typical use-case: re-render a subset of views (e.g. with different
     settings or a trained splat) and merge them back into the original orbit.
@@ -101,17 +103,16 @@ class Body2COLMAP_ReplaceViews:
         scale = _scene_scale(base_pos)
         threshold = (tolerance_pct / 100.0) * scale
 
-        # For each replacement camera, find closest base camera
-        # Build a list of (base_idx, repl_idx, distance) matches
+        # For each base camera, find the closest replacement camera.
+        # This ensures every base view that has a nearby replacement gets
+        # swapped, even when multiple base cameras share a location (overlap).
         matches = {}  # base_idx -> (repl_idx, distance)
-        for r_idx in range(len(repl_cameras)):
-            dists = np.linalg.norm(base_pos - repl_pos[r_idx], axis=1)
-            b_idx = int(np.argmin(dists))
-            d = float(dists[b_idx])
+        for b_idx in range(len(base_cameras)):
+            dists = np.linalg.norm(repl_pos - base_pos[b_idx], axis=1)
+            r_idx = int(np.argmin(dists))
+            d = float(dists[r_idx])
             if d <= threshold:
-                # Keep the closest replacement if multiple map to the same base
-                if b_idx not in matches or d < matches[b_idx][1]:
-                    matches[b_idx] = (r_idx, d)
+                matches[b_idx] = (r_idx, d)
 
         if not matches:
             logger.warning(
