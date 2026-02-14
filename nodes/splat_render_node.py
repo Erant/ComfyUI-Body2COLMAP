@@ -271,10 +271,10 @@ class Body2COLMAP_RenderSplat:
         }
 
         # Pass through metadata from mesh renderer for downstream reuse
-        if b2c_data and "framing_bounds" in b2c_data:
-            b2c_output["framing_bounds"] = b2c_data["framing_bounds"]
-        if b2c_data and "initial_rotation" in b2c_data:
-            b2c_output["initial_rotation"] = b2c_data["initial_rotation"]
+        if b2c_data:
+            for key in ("framing_bounds", "initial_rotation", "orbit_target"):
+                if key in b2c_data:
+                    b2c_output[key] = b2c_data[key]
 
         return (images_tensor, masks_tensor, b2c_output)
 
