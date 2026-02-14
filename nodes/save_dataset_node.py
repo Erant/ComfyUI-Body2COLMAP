@@ -293,12 +293,14 @@ class Body2COLMAP_SaveDataset:
         for key, value in b2c_data.items():
             if key in _SPECIAL_KEYS:
                 continue
-            # Convert numpy arrays/scalars to JSON-serializable form
+            # Convert numpy arrays/scalars to Python types
             if hasattr(value, "tolist"):
-                extras[key] = value.tolist()
-            elif isinstance(value, (str, int, float, bool, list, dict, type(None))):
+                value = value.tolist()
+            # Only keep the value if it's actually JSON-serializable
+            try:
+                json.dumps(value)
                 extras[key] = value
-            else:
+            except (TypeError, ValueError):
                 logger.debug(f"[Body2COLMAP] SaveDataset: skipping non-serializable key '{key}'")
         if extras:
             metadata["b2c_extras"] = extras
