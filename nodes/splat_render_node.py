@@ -272,7 +272,8 @@ class Body2COLMAP_RenderSplat:
 
         # Pass through metadata from mesh renderer for downstream reuse
         if b2c_data:
-            for key in ("framing_bounds", "initial_rotation", "orbit_target"):
+            for key in ("framing_bounds", "initial_rotation", "orbit_target",
+                       "forward_azimuth_deg"):
                 if key in b2c_data:
                     b2c_output[key] = b2c_data[key]
 
