@@ -16,7 +16,8 @@ def _normalize_angle(deg: float) -> float:
 def _compute_skeleton_relative_azimuths(cameras, orbit_target, forward_azimuth_deg):
     """Compute each camera's azimuth relative to the skeleton's front.
 
-    Uses the OrbitPath convention: azimuth 0° = −Z direction.
+    Uses the OrbitPath convention: azimuth 0° = +Z direction
+    (matching body2colmap's ``cartesian_to_spherical``).
 
     Args:
         cameras: List of Camera objects with ``.position`` attribute.
@@ -32,7 +33,7 @@ def _compute_skeleton_relative_azimuths(cameras, orbit_target, forward_azimuth_d
     for cam in cameras:
         dx = cam.position[0] - orbit_target[0]
         dz = cam.position[2] - orbit_target[2]
-        orbit_az = np.degrees(np.arctan2(dx, -dz))
+        orbit_az = np.degrees(np.arctan2(dx, dz))
         relative_az = _normalize_angle(orbit_az - forward_azimuth_deg)
         azimuths.append(relative_az)
     return azimuths
