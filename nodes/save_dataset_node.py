@@ -300,8 +300,12 @@ class Body2COLMAP_SaveDataset:
             try:
                 json.dumps(value)
                 extras[key] = value
-            except (TypeError, ValueError):
-                logger.debug(f"[Body2COLMAP] SaveDataset: skipping non-serializable key '{key}'")
+            except (TypeError, ValueError) as e:
+                logger.warning(
+                    f"[Body2COLMAP] SaveDataset: skipping non-serializable extra '{key}' "
+                    f"({type(value).__name__}: {e}). This is usually fine — the key "
+                    f"will not be present in the saved metadata."
+                )
         if extras:
             metadata["b2c_extras"] = extras
 
@@ -323,8 +327,12 @@ class Body2COLMAP_SaveDataset:
             try:
                 json.dumps(value)
                 safe_metadata[key] = value
-            except (TypeError, ValueError):
-                logger.warning(f"[Body2COLMAP] SaveDataset: dropping non-serializable metadata key '{key}'")
+            except (TypeError, ValueError) as e:
+                logger.warning(
+                    f"[Body2COLMAP] SaveDataset: dropping non-serializable metadata key '{key}' "
+                    f"({type(value).__name__}: {e}). This is usually fine — the key "
+                    f"will not be present in the saved metadata."
+                )
 
         metadata_path = output_path / "metadata.json"
         with open(metadata_path, 'w') as f:
