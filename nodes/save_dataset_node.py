@@ -4,6 +4,7 @@ import json
 import logging
 import shutil
 from pathlib import Path
+import folder_paths
 import numpy as np
 import cv2
 import torch
@@ -199,7 +200,7 @@ class Body2COLMAP_SaveDataset:
                 masks = masks[0]
 
         # Build output path
-        base_path = Path("output") / output_directory
+        base_path = Path(folder_paths.get_output_directory()) / output_directory
 
         if auto_increment:
             # Create numbered directory

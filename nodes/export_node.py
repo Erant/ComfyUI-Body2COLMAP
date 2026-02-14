@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import cv2
+import folder_paths
 import numpy as np
 import re
 import torch
@@ -160,7 +161,7 @@ class Body2COLMAP_ExportCOLMAP:
         width, height = b2c_data["resolution"]
 
         # Build output path
-        base_path = Path("output") / output_directory
+        base_path = Path(folder_paths.get_output_directory()) / output_directory
 
         if auto_increment:
             # Create numbered directory

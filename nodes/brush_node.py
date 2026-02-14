@@ -7,6 +7,7 @@ import logging
 import time
 import threading
 from pathlib import Path
+import folder_paths
 import numpy as np
 import cv2
 import gc
@@ -214,7 +215,7 @@ class Body2COLMAP_RunBrush:
 
         # 1. Create temporary directory for brush output (persists after function returns)
         timestamp = int(time.time() * 1000)  # milliseconds for uniqueness
-        temp_output = Path("temp") / "brush" / f"training_{timestamp}"
+        temp_output = Path(folder_paths.get_temp_directory()) / "brush" / f"training_{timestamp}"
         temp_output.mkdir(parents=True, exist_ok=True)
 
         logger.info(f"[Body2COLMAP] Brush temporary output: {temp_output}")

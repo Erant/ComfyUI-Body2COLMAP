@@ -3,6 +3,7 @@
 import json
 import logging
 from pathlib import Path
+import folder_paths
 import numpy as np
 import cv2
 import torch
@@ -145,7 +146,7 @@ class Body2COLMAP_LoadDataset:
             prompt: Prompt text string (or empty if not present)
         """
         # Build full path
-        dataset_path = Path("output") / directory
+        dataset_path = Path(folder_paths.get_output_directory()) / directory
 
         if not dataset_path.exists():
             raise FileNotFoundError(f"Dataset directory not found: {dataset_path}")
