@@ -488,6 +488,7 @@ class Body2COLMAP_Render:
                     target_format=skeleton_format,
                     joint_radius=joint_radius,
                     bone_radius=bone_radius,
+                    bg_color=bg_color,
                     face_mode=effective_face_mode,
                     face_landmarks=openpose_face_70,
                     face_max_angle=face_max_angle,
