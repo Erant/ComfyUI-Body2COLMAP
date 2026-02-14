@@ -480,6 +480,7 @@ class Body2COLMAP_Render:
             "image_names": image_names,
             "points_3d": (points, colors),
             "resolution": (width, height),
+            "focal_length_mm": focal_length_mm,  # 0 = auto, >0 = explicit 35mm equivalent
             "framing_bounds": all_framing_bounds,  # Dict of all computed framing bounds
             "initial_rotation": initial_rotation,  # For splat renderer to reuse
         }

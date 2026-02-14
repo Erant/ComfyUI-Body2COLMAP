@@ -185,10 +185,17 @@ class Body2COLMAP_ExportCOLMAP:
 
                 # Combine RGB with alpha
                 for i, (img, filename) in enumerate(zip(cv2_images, image_names)):
-                    # img is BGR from comfy_to_cv2, shape [H, W, 3]
-                    # Add alpha channel
                     alpha = alpha_channel[i]  # [H, W]
-                    rgba = np.dstack([img, alpha])  # [H, W, 4] - BGRA
+
+                    if img.shape[-1] == 4:
+                        # Already BGRA - replace existing alpha channel
+                        rgba = img.copy()
+                        rgba[..., 3] = alpha
+                    elif img.shape[-1] == 3:
+                        # BGR - add alpha channel
+                        rgba = np.dstack([img, alpha])  # [H, W, 4] - BGRA
+                    else:
+                        raise ValueError(f"Unexpected image channels: {img.shape[-1]} (expected 3 or 4)")
 
                     img_path = output_path / filename
                     cv2.imwrite(str(img_path), rgba)

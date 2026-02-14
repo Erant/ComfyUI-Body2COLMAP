@@ -85,7 +85,6 @@ class Body2COLMAP_LoadDataset:
     """
     Load Body2COLMAP dataset from disk.
 
-    Supports auto-incrementing index for batch processing multiple datasets.
     Can split large datasets into smaller batches for VRAM efficiency.
     """
 
@@ -108,14 +107,7 @@ class Body2COLMAP_LoadDataset:
             "required": {
                 "directory": ("STRING", {
                     "default": "b2c_dataset",
-                    "tooltip": "Base directory name (in output folder)"
-                }),
-                "index": ("INT", {
-                    "default": -1,
-                    "min": -1,
-                    "max": 99999,
-                    "control_after_generate": True,
-                    "tooltip": "Dataset index (-1 = use directory as-is, >=0 = append _NNNNN)"
+                    "tooltip": "Directory path (in output folder)"
                 }),
                 "batch_size": ("INT", {
                     "default": 0,
@@ -127,13 +119,12 @@ class Body2COLMAP_LoadDataset:
             }
         }
 
-    def load(self, directory, index=-1, batch_size=0):
+    def load(self, directory, batch_size=0):
         """
         Load Body2COLMAP dataset from disk.
 
         Reads from directory structure:
-            output/directory/  (if index=-1)
-            output/directory_NNNNN/  (if index>=0)
+            output/directory/
             ├── frame_00001_.png
             ├── frame_00002_.png
             ├── ...
@@ -143,9 +134,7 @@ class Body2COLMAP_LoadDataset:
             └── pointcloud.npz
 
         Args:
-            directory: Base directory name (in output folder)
-            index: Dataset index (-1 = exact path, >=0 = append _NNNNN)
-                   Use control_after_generate dropdown for auto-increment behavior.
+            directory: Directory path (in output folder)
             batch_size: Max images per batch (0 = all at once, >0 = split for VRAM efficiency)
 
         Returns:
@@ -156,13 +145,7 @@ class Body2COLMAP_LoadDataset:
             prompt: Prompt text string (or empty if not present)
         """
         # Build full path
-        if index == -1:
-            # Use directory as-is
-            dataset_path = Path("output") / directory
-        else:
-            # Append _NNNNN to directory
-            numbered_dir = f"{directory}_{index:05d}"
-            dataset_path = Path("output") / numbered_dir
+        dataset_path = Path("output") / directory
 
         if not dataset_path.exists():
             raise FileNotFoundError(f"Dataset directory not found: {dataset_path}")

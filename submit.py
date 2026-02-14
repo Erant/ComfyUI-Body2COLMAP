@@ -40,6 +40,7 @@ Usage:
 
 import argparse
 import copy
+import glob
 import json
 import os
 import sys
@@ -57,7 +58,7 @@ DIRECTORY_FIELDS = {
 }
 
 # Keys in a step that are directives, not node field overrides
-STEP_KEYS = {"workflow", "paths", "_prompt"}
+STEP_KEYS = {"workflow", "paths", "fixup_models", "_prompt"}
 
 
 def apply_settings(prompt, settings):
@@ -96,6 +97,10 @@ def patch_prompt(prompt, dataset, step_args, settings):
         field = DIRECTORY_FIELDS[class_type]
         current = node_def["inputs"].get(field, "")
         title = node_def.get("_meta", {}).get("title", class_type)
+
+        # Skip if the field is a node connection (placeholder or otherwise)
+        if isinstance(current, list):
+            continue
 
         if current not in paths:
             print(
@@ -147,28 +152,23 @@ def load_pipeline(config_path, workflow_dir=None):
         config = yaml.safe_load(f)
 
     if not isinstance(config, dict) or "steps" not in config:
-        print(
-            "Error: Pipeline config must be a YAML mapping with a 'steps' key.",
-            file=sys.stderr,
+        raise ValueError(
+            "Pipeline config must be a YAML mapping with a 'steps' key."
         )
-        sys.exit(1)
 
     settings = config.get("settings", {})
     steps = config["steps"]
 
     if not isinstance(steps, list) or not steps:
-        print("Error: 'steps' must be a non-empty array.", file=sys.stderr)
-        sys.exit(1)
+        raise ValueError("'steps' must be a non-empty array.")
 
     # Load and validate each workflow, cache to avoid re-reading duplicates
     workflow_cache = {}
     for i, step in enumerate(steps):
         if not isinstance(step, dict) or "workflow" not in step:
-            print(
-                f"Error: Step {i + 1} must be a mapping with at least a 'workflow' key.",
-                file=sys.stderr,
+            raise ValueError(
+                f"Step {i + 1} must be a mapping with at least a 'workflow' key."
             )
-            sys.exit(1)
 
         name = step["workflow"]
         if name not in workflow_cache:
@@ -177,17 +177,14 @@ def load_pipeline(config_path, workflow_dir=None):
                 with open(path, encoding="utf-8") as f:
                     prompt = json.load(f)
             except (json.JSONDecodeError, FileNotFoundError) as e:
-                print(f"Error loading {path}: {e}", file=sys.stderr)
-                sys.exit(1)
+                raise ValueError(f"Error loading {path}: {e}") from e
 
             if not validate_api_format(prompt):
-                print(
-                    f"Error: {name} doesn't look like an API-format workflow.\n"
+                raise ValueError(
+                    f"{name} doesn't look like an API-format workflow.\n"
                     "In ComfyUI, enable Dev Mode in Settings, then use\n"
-                    "File > Export (API Format) to get the correct format.",
-                    file=sys.stderr,
+                    "File > Export (API Format) to get the correct format."
                 )
-                sys.exit(1)
 
             workflow_cache[name] = prompt
 
@@ -230,6 +227,228 @@ def wait_for_completion(server, prompt_id, poll_interval=2.0):
             print(" done.")
             return history[prompt_id]
         print(".", end="", flush=True)
+
+
+def get_server_address():
+    """Get the ComfyUI server address from CLI args (when running as a node)."""
+    try:
+        import comfy.cli_args
+
+        host = comfy.cli_args.args.listen
+        port = comfy.cli_args.args.port
+    except (ImportError, AttributeError):
+        raise RuntimeError(
+            "Cannot auto-detect server address outside of ComfyUI. "
+            "Use the --server argument when running from the command line."
+        )
+    if host in ("0.0.0.0", "::"):
+        host = "127.0.0.1"
+    return f"{host}:{port}"
+
+
+def expand_datasets(raw_lines):
+    """Expand dataset lines, supporting trailing wildcards.
+
+    Lines whose last path component contains a ``*`` are glob-expanded and
+    filtered to directories only.  Other lines are passed through as-is.
+
+    Example::
+
+        datasets/*          -> all directories inside datasets/
+        datasets/batch_*    -> directories matching the prefix
+        dataset_00001       -> passed through verbatim
+    """
+    result = []
+    for line in raw_lines:
+        line = line.strip()
+        if not line:
+            continue
+        if "*" in os.path.basename(line):
+            matches = sorted(glob.glob(line))
+            result.extend(m for m in matches if os.path.isdir(m))
+        else:
+            result.append(line)
+    return result
+
+
+def extract_ancestor_subgraph(prompt, node_id, input_name):
+    """Extract the full ancestor subgraph feeding into a node's input.
+
+    Walks backwards from the node connected to ``input_name`` on
+    ``node_id``, collecting every ancestor node via BFS.
+
+    Returns (subgraph, root_node_id, root_output_index) where *subgraph*
+    is ``{node_id: node_def}`` for all ancestor nodes.  Returns
+    ``(None, None, None)`` if the input is not connected.
+    """
+    node_def = prompt.get(str(node_id))
+    if node_def is None:
+        return None, None, None
+
+    connection = node_def.get("inputs", {}).get(input_name)
+    if not isinstance(connection, list) or len(connection) != 2:
+        return None, None, None
+
+    root_node_id = str(connection[0])
+    root_output_index = connection[1]
+
+    # BFS backwards through the graph
+    subgraph = {}
+    queue = [root_node_id]
+    visited = set()
+
+    while queue:
+        nid = queue.pop(0)
+        if nid in visited:
+            continue
+        visited.add(nid)
+
+        ndef = prompt.get(nid)
+        if ndef is None:
+            continue
+
+        subgraph[nid] = copy.deepcopy(ndef)
+
+        for val in ndef.get("inputs", {}).values():
+            if (
+                isinstance(val, list)
+                and len(val) == 2
+                and isinstance(val[0], str)
+                and isinstance(val[1], int)
+            ):
+                queue.append(val[0])
+
+    return subgraph, root_node_id, root_output_index
+
+
+def _is_connection(value):
+    """Return True if *value* looks like an API-format node connection."""
+    return (
+        isinstance(value, list)
+        and len(value) == 2
+        and isinstance(value[0], str)
+        and isinstance(value[1], int)
+    )
+
+
+def fixup_placeholders(target_workflow, prompt, unique_id, settings=None):
+    """Replace Body2COLMAP_Placeholder nodes in *target_workflow*.
+
+    Each Placeholder has a ``key`` that is resolved against two sources
+    (Composer node inputs take precedence over *settings*):
+
+    * **Connection inputs** (e.g. ``model_high`` wired to a checkpoint
+      loader chain): the full ancestor subgraph is extracted, remapped to
+      avoid ID collisions, injected into *target_workflow*, and every
+      consumer of the placeholder is rewired to the subgraph root.
+
+    * **Literal inputs** (e.g. ``brush_path = "brush"``, or a value from
+      the pipeline YAML settings): every consumer of the placeholder has
+      its reference replaced with the literal value.
+
+    Modifies *target_workflow* in-place.
+    """
+    # Find all placeholder nodes
+    placeholders = {}
+    for nid, ndef in list(target_workflow.items()):
+        if ndef.get("class_type") == "Body2COLMAP_Placeholder":
+            key = ndef["inputs"]["key"]
+            # Skip if the key input is a node connection rather than a literal
+            if not isinstance(key, str):
+                continue
+            placeholders[nid] = key
+
+    if not placeholders:
+        return
+
+    # Look up the Composer node's inputs in the live prompt
+    composer = prompt.get(str(unique_id))
+    if composer is None:
+        raise ValueError(
+            f"WorkflowComposer node {unique_id} not found in prompt"
+        )
+    composer_inputs = composer.get("inputs", {})
+
+    # Build merged lookup: pipeline settings as base, Composer inputs win
+    lookup = dict(settings) if settings else {}
+    lookup.update(composer_inputs)
+
+    # Classify each placeholder as subgraph (connection) or literal
+    subgraph_phs = {}   # placeholder_id -> key
+    literal_phs = {}    # placeholder_id -> (key, value)
+
+    for placeholder_id, key in placeholders.items():
+        if key not in lookup:
+            raise ValueError(
+                f"Placeholder '{key}' has no matching input on the "
+                f"WorkflowComposer node or in the pipeline settings."
+            )
+        value = lookup[key]
+        if _is_connection(value):
+            subgraph_phs[placeholder_id] = key
+        else:
+            literal_phs[placeholder_id] = (key, value)
+
+    # ---- Subgraph placeholders: extract, remap, inject, rewire ----------
+
+    if subgraph_phs:
+        merged_subgraph = {}
+        roots = {}  # placeholder_id -> (root_node_id, root_output_index)
+
+        for placeholder_id, key in subgraph_phs.items():
+            subgraph, root_id, root_slot = extract_ancestor_subgraph(
+                prompt, unique_id, key
+            )
+            if subgraph is None:
+                raise ValueError(
+                    f"Placeholder '{key}' is connected on the Composer but "
+                    f"the ancestor subgraph could not be extracted."
+                )
+            merged_subgraph.update(subgraph)
+            roots[placeholder_id] = (root_id, root_slot)
+
+        # Compute ID offset to avoid collisions
+        existing_int_ids = [int(nid) for nid in target_workflow if nid.isdigit()]
+        offset = max(existing_int_ids, default=0) + 1
+
+        id_map = {}
+        for old_id in merged_subgraph:
+            id_map[old_id] = (
+                str(int(old_id) + offset) if old_id.isdigit()
+                else f"{old_id}_{offset}"
+            )
+
+        # Inject remapped subgraph nodes
+        for old_id, ndef in merged_subgraph.items():
+            new_def = copy.deepcopy(ndef)
+            for _key, val in new_def.get("inputs", {}).items():
+                if _is_connection(val) and val[0] in id_map:
+                    val[0] = id_map[val[0]]
+            target_workflow[id_map[old_id]] = new_def
+
+        # Rewire consumers, then remove placeholders
+        for placeholder_id, (root_id, root_slot) in roots.items():
+            remapped_root = id_map[root_id]
+            for nid, ndef in target_workflow.items():
+                if nid == placeholder_id:
+                    continue
+                for _key, val in ndef.get("inputs", {}).items():
+                    if _is_connection(val) and str(val[0]) == placeholder_id:
+                        val[0] = remapped_root
+                        val[1] = root_slot
+            del target_workflow[placeholder_id]
+
+    # ---- Literal placeholders: replace references with the value --------
+
+    for placeholder_id, (key, value) in literal_phs.items():
+        for nid, ndef in target_workflow.items():
+            if nid == placeholder_id:
+                continue
+            inputs = ndef.get("inputs", {})
+            for input_key, input_val in inputs.items():
+                if _is_connection(input_val) and str(input_val[0]) == placeholder_id:
+                    inputs[input_key] = value
+        del target_workflow[placeholder_id]
 
 
 def main():
@@ -279,7 +498,11 @@ def main():
     args = parser.parse_args()
 
     # Load and validate pipeline up front
-    settings, steps = load_pipeline(args.pipeline, args.workflow_dir)
+    try:
+        settings, steps = load_pipeline(args.pipeline, args.workflow_dir)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
     if settings:
         print("Settings:")
         for key, val in settings.items():
