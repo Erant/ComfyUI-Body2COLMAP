@@ -107,14 +107,12 @@ class Body2COLMAP_RotateViews:
             twin_idx = ranked[1]
 
         if twin_idx is not None:
-            # Choose traversal direction so the twin lands at position N-1.
-            forward_dist = (twin_idx - best_idx) % n_views
-            if forward_dist <= n_views // 2:
-                # Twin is close ahead → go backward so it ends up last
-                order = [(best_idx - i) % n_views for i in range(n_views)]
-            else:
-                # Twin is close behind → forward already puts it last
-                order = [(best_idx + i) % n_views for i in range(n_views)]
+            # Build forward order, then move the twin to the very end.
+            # This keeps the orbit direction intact while splitting the pair
+            # to frame_00001 / frame_N for FirstLast diffusion.
+            order = [(best_idx + i) % n_views for i in range(n_views)]
+            order.remove(twin_idx)
+            order.append(twin_idx)
 
             logger.info(
                 "[Body2COLMAP] RotateViews: start_azimuth=%.1f° → view %d "
