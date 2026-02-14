@@ -283,6 +283,24 @@ class Body2COLMAP_SaveDataset:
             ]
         }
 
+        # Pass through extra b2c_data keys so downstream nodes (e.g.
+        # Filter FoV) work after a Save → Load round-trip without
+        # needing explicit support for every new field.
+        _SPECIAL_KEYS = {"cameras", "image_names", "points_3d", "resolution", "splat_path"}
+        extras = {}
+        for key, value in b2c_data.items():
+            if key in _SPECIAL_KEYS:
+                continue
+            # Convert numpy arrays/scalars to JSON-serializable form
+            if hasattr(value, "tolist"):
+                extras[key] = value.tolist()
+            elif isinstance(value, (str, int, float, bool, list, dict, type(None))):
+                extras[key] = value
+            else:
+                logger.debug(f"[Body2COLMAP] SaveDataset: skipping non-serializable key '{key}'")
+        if extras:
+            metadata["b2c_extras"] = extras
+
         # Save splat if available in b2c_data
         source_splat = b2c_data.get("splat_path")
         if source_splat and Path(source_splat).exists():

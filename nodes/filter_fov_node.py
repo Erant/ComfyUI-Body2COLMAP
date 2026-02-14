@@ -104,8 +104,10 @@ class Body2COLMAP_FilterFoV:
         orbit_target = b2c_data.get("orbit_target")
         if orbit_target is None:
             raise ValueError(
-                "b2c_data is missing 'orbit_target'. "
-                "Re-run the Render node (requires updated Body2COLMAP)."
+                "b2c_data is missing 'orbit_target'. Filter FoV requires "
+                "data from a single Render node (not supported with merged "
+                "datasets). Re-save the dataset from the Render node to "
+                "include orbit metadata."
             )
         forward_azimuth_deg = b2c_data.get("forward_azimuth_deg", 0.0)
 

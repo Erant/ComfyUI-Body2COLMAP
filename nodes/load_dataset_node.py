@@ -255,6 +255,12 @@ class Body2COLMAP_LoadDataset:
             "resolution": resolution,
         }
 
+        # Restore extra b2c_data keys saved by Save Dataset, so that
+        # downstream nodes work after a Save → Load round-trip without
+        # needing explicit support for every field.
+        for key, value in metadata.get("b2c_extras", {}).items():
+            b2c_data[key] = value
+
         # Check if splat exists and add path to b2c_data (for SaveDataset to copy)
         splat_filename = metadata.get("splat_filename")
         if splat_filename:
