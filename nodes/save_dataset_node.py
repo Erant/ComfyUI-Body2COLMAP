@@ -314,9 +314,19 @@ class Body2COLMAP_SaveDataset:
             # Update metadata with splat filename
             metadata["splat_filename"] = splat_filename
 
+        # Drop any top-level keys that aren't JSON-serializable
+        # (e.g. numpy arrays nested in extras or camera dicts).
+        safe_metadata = {}
+        for key, value in metadata.items():
+            try:
+                json.dumps(value)
+                safe_metadata[key] = value
+            except (TypeError, ValueError):
+                logger.warning(f"[Body2COLMAP] SaveDataset: dropping non-serializable metadata key '{key}'")
+
         metadata_path = output_path / "metadata.json"
         with open(metadata_path, 'w') as f:
-            json.dump(metadata, f, indent=2)
+            json.dump(safe_metadata, f, indent=2)
 
         logger.info(f"[Body2COLMAP] Saved metadata ({len(cameras)} cameras)")
 
