@@ -46,6 +46,12 @@ class Body2COLMAP_GenerateFirstLast:
         photo so it aligns pixel-for-pixel with the rendered skeleton at the
         orbit's anchor frame.
 
+        The result stays valid across later renders that re-anchor to the same
+        original camera — a helical splat re-render's anchor camera is
+        identical to the circular render's frame 0 (same origin position, same
+        look_at target, same framed focal length), so the warped image does not
+        need to be recomputed.
+
         Args:
             image_warp: B2C_IMAGE_WARP dict with camera, original_focal_length,
                         and render_size.

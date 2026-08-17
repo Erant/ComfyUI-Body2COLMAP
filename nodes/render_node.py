@@ -20,7 +20,7 @@ from body2colmap.utils import (
 )
 from ..core.sam3d_adapter import sam3d_output_to_scene
 from ..core.comfy_utils import rendered_to_comfy
-from ..core.camera_utils import focal_length_mm_to_pixels
+from ..core.camera_utils import focal_length_mm_to_pixels, focal_length_pixels_to_mm
 
 logger = logging.getLogger(__name__)
 
@@ -202,7 +202,8 @@ class Body2COLMAP_Render:
                     "tooltip": (
                         "Use the original camera position from the mesh data instead of "
                         "path elevation/azimuth/radius, so one frame sits exactly at the "
-                        "original viewpoint. Works with Circular and Helical Path. "
+                        "original viewpoint. Works with Circular and Helical Path "
+                        "(circular anchors frame 0, helical solves for the anchor frame). "
                         "Enables B2C_IMAGE_WARP output for the Generate FirstLast node "
                         "and records the anchor in b2c_data for the Inject Anchor node."
                     )
@@ -234,10 +235,10 @@ class Body2COLMAP_Render:
         framing = path_config.get("framing", "full")
         pattern = path_config["pattern"]
 
-        # Validate override_cam_from_mesh constraints.  Circular orbits keep a
-        # constant elevation so the anchor is always frame 0; helical orbits
-        # sweep elevation and solve for the anchor frame.  Sinusoidal paths
-        # revisit elevations non-monotonically and are not anchorable.
+        # Validate override_cam_from_mesh constraints.  Circular anchors frame
+        # 0 (constant elevation, so any frame works); helical sweeps elevation
+        # and solves for the one frame that can land on the original camera.
+        # Sinusoidal is deliberately unanchored in body2colmap.
         if override_cam_from_mesh and pattern not in ("circular", "helical"):
             raise ValueError(
                 f"override_cam_from_mesh only works with Circular or Helical Path, "
@@ -333,79 +334,87 @@ class Body2COLMAP_Render:
             )
             framed_fl = framing_info['framed_focal_length']
 
-            orbit_params = compute_original_camera_orbit_params(orbit_center)
-            derived_radius = float(orbit_params['radius'])
-            derived_azimuth = orbit_params['start_azimuth_deg']
-            derived_elevation = orbit_params['elevation_deg']
-
-            logger.info(
-                f"[Body2COLMAP] Original camera orbit: radius={derived_radius:.3f}, "
-                f"azimuth={derived_azimuth:.1f}°, elevation={derived_elevation:.1f}°, "
-                f"framed_fl={framed_fl:.1f}px"
-            )
-
             camera_template = Camera(
                 focal_length=(framed_fl, framed_fl),
                 image_size=(width, height)
             )
 
-            path_gen = OrbitPath(target=orbit_center, radius=derived_radius)
-
             if pattern == "circular":
-                # Constant elevation, so the original camera is reachable at
-                # frame 0 and the derived azimuth starts the orbit there.
+                orbit_params = compute_original_camera_orbit_params(orbit_center)
+                derived_radius = float(orbit_params['radius'])
+                # The orbit azimuth that puts the camera back at the original
+                # camera position.  For circular that is also the start azimuth.
+                anchor_azimuth = float(orbit_params['start_azimuth_deg'])
+                derived_elevation = orbit_params['elevation_deg']
                 anchor_frame_index = 0
+
+                logger.info(
+                    f"[Body2COLMAP] Original camera orbit (circular): "
+                    f"radius={derived_radius:.3f}, azimuth={anchor_azimuth:.1f}°, "
+                    f"elevation={derived_elevation:.1f}°, framed_fl={framed_fl:.1f}px"
+                )
+
+                path_gen = OrbitPath(target=orbit_center, radius=derived_radius)
                 cameras = path_gen.circular(
                     n_frames=params["n_frames"],
                     elevation_deg=derived_elevation,
-                    start_azimuth_deg=derived_azimuth,
+                    start_azimuth_deg=anchor_azimuth,
                     overlap=params.get("overlap", 1),
                     camera_template=camera_template,
                 )
             else:
-                # Helical: the elevation ramp dictates *where* in the sequence
-                # the original camera can occur, so solve for that frame, the
-                # start azimuth that reaches it, and the small uniform tilt
-                # that makes it exact.  The path node's start_azimuth_deg is
-                # overridden, the same way elevation_deg is for circular.
-                lead_in_deg = params.get("lead_in_deg", 45.0)
-                lead_out_deg = params.get("lead_out_deg", 45.0)
+                # Helical: elevation sweeps, so the original camera can only be
+                # reached at the frame whose elevation matches it.  Solve for
+                # that frame, the start azimuth that lands on it, and the small
+                # uniform elevation shift that makes it exact.
+                #
+                # Forward the path node's actual lead-in/lead-out (it defaults
+                # to 30/90, not the solver's 45/45) or the solved index is wrong.
+                helix_params = dict(
+                    n_frames=params["n_frames"],
+                    n_loops=params["n_loops"],
+                    amplitude_deg=params["amplitude_deg"],
+                    lead_in_deg=params.get("lead_in_deg", 45.0),
+                    lead_out_deg=params.get("lead_out_deg", 45.0),
+                )
                 try:
-                    anchor = compute_helical_anchor_params(
-                        target=orbit_center,
-                        n_frames=params["n_frames"],
-                        n_loops=params["n_loops"],
-                        amplitude_deg=params["amplitude_deg"],
-                        lead_in_deg=lead_in_deg,
-                        lead_out_deg=lead_out_deg,
+                    anchor_info = compute_helical_anchor_params(
+                        target=orbit_center, **helix_params
                     )
                 except ValueError as e:
+                    # Not every helix reaches the original camera's elevation.
+                    # Name the widgets to adjust rather than emitting a path
+                    # that silently misses the anchor.
                     raise ValueError(
                         f"Cannot anchor this helical path to the original camera: {e} "
                         f"Adjust amplitude_deg / n_frames / n_loops on the Helical Path "
                         f"node, or disable override_cam_from_mesh."
                     ) from e
 
-                anchor_frame_index = anchor["anchor_frame_index"]
+                derived_radius = float(anchor_info['radius'])
+                anchor_azimuth = float(anchor_info['anchor_azimuth_deg'])
+                anchor_frame_index = int(anchor_info['anchor_frame_index'])
+
                 logger.info(
-                    f"[Body2COLMAP] Helical anchor: frame {anchor_frame_index} of "
-                    f"{params['n_frames']}, start_azimuth={anchor['start_azimuth_deg']:.1f}°, "
-                    f"elevation_offset={anchor['elevation_offset_deg']:+.2f}°"
+                    f"[Body2COLMAP] Original camera orbit (helical): "
+                    f"radius={derived_radius:.3f}, anchor_frame={anchor_frame_index}, "
+                    f"anchor_azimuth={anchor_azimuth:.1f}°, "
+                    f"anchor_elevation={anchor_info['anchor_elevation_deg']:.2f}°, "
+                    f"elevation_offset={anchor_info['elevation_offset_deg']:+.3f}°, "
+                    f"framed_fl={framed_fl:.1f}px"
                 )
 
+                path_gen = OrbitPath(target=orbit_center, radius=derived_radius)
                 cameras = path_gen.helical(
-                    n_frames=params["n_frames"],
-                    n_loops=params["n_loops"],
-                    amplitude_deg=params["amplitude_deg"],
-                    lead_in_deg=lead_in_deg,
-                    lead_out_deg=lead_out_deg,
-                    start_azimuth_deg=anchor["start_azimuth_deg"],
-                    elevation_offset_deg=anchor["elevation_offset_deg"],
+                    start_azimuth_deg=anchor_info['start_azimuth_deg'],
+                    elevation_offset_deg=anchor_info['elevation_offset_deg'],
                     camera_template=camera_template,
+                    **helix_params
                 )
 
             # Build image warp data for Generate FirstLast.  The anchor frame
-            # is 0 for circular but solved for on helical — never assume 0.
+            # is the one sitting on the original camera — 0 for circular,
+            # solved for on helical.  Never assume 0.
             image_warp = {
                 "camera": cameras[anchor_frame_index],
                 "original_focal_length": original_focal_length,
@@ -623,14 +632,23 @@ class Body2COLMAP_Render:
         # looking at the front of the skeleton.
         if override_cam_from_mesh:
             # The original camera was at the origin looking at the subject.
-            # derived_azimuth is the orbit azimuth that places the camera
+            # anchor_azimuth is the orbit azimuth that places the camera
             # back at the origin, so it equals "front".
-            forward_azimuth_deg = float(derived_azimuth)
+            forward_azimuth_deg = float(anchor_azimuth)
         else:
             # After auto-orient the skeleton faces -Z, and OrbitPath azimuth
             # 0° = -Z direction, so forward is always 0° regardless of
             # start_azimuth_deg.
             forward_azimuth_deg = 0.0
+
+        # Effective focal length to publish.  In override mode the widget value
+        # is bypassed entirely (the render used the auto-framed focal length),
+        # so publishing the raw widget would make downstream renders silently
+        # reframe.  Convert the pixels we actually used back to mm.
+        if override_cam_from_mesh:
+            effective_focal_length_mm = focal_length_pixels_to_mm(focal_length, width)
+        else:
+            effective_focal_length_mm = focal_length_mm
 
         # Package metadata for serialization (no scene object - not serializable)
         b2c_data = {
@@ -638,21 +656,28 @@ class Body2COLMAP_Render:
             "image_names": image_names,
             "points_3d": (points, colors),
             "resolution": (width, height),
-            "focal_length_mm": focal_length_mm,  # 0 = auto, >0 = explicit 35mm equivalent
+            "focal_length_mm": effective_focal_length_mm,  # 0 = auto, >0 = explicit 35mm equivalent
             "framing_bounds": all_framing_bounds,  # Dict of all computed framing bounds
             "initial_rotation": path_config.get("initial_rotation", 0.0),  # For splat renderer to reuse
             "orbit_target": orbit_center,  # np.ndarray(3,) — orbit center point
             "forward_azimuth_deg": forward_azimuth_deg,  # Orbit azimuth that = skeleton front
         }
 
-        # Record the anchor so Inject Anchor can find the frame(s) sitting at
-        # the original camera.  The *position* is the durable key: the index
-        # goes stale as soon as views are dropped or reordered, and a Camera
-        # object would not survive Save Dataset's JSON round-trip.
         if override_cam_from_mesh:
+            # Which rendered frame sits on the original camera, so downstream
+            # stages know where the reference photo's viewpoint lives.
             b2c_data["anchor_frame_index"] = int(anchor_frame_index)
+            # The *position* is the durable anchor key that Inject Anchor
+            # matches against: the index goes stale as soon as views are
+            # dropped or reordered, and a Camera object would not survive Save
+            # Dataset's JSON round-trip.
             b2c_data["anchor_position"] = np.asarray(
                 cameras[anchor_frame_index].position, dtype=np.float32
             )
+            # The SAM-3D focal length in pixels.  Its presence also marks this
+            # dataset as rendered *without* auto-orient, i.e. the original
+            # camera really is at the world origin — the invariant the splat
+            # renderer's own override mode depends on.
+            b2c_data["original_focal_length"] = original_focal_length
 
         return (images_tensor, masks_tensor, b2c_data, image_warp)

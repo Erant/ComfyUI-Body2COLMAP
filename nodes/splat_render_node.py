@@ -3,8 +3,13 @@
 import logging
 import time
 
+import numpy as np
 import comfy.utils
-from body2colmap.path import OrbitPath
+from body2colmap.path import (
+    OrbitPath,
+    compute_helical_anchor_params,
+    compute_original_camera_orbit_params,
+)
 from body2colmap.camera import Camera
 from body2colmap.utils import compute_default_focal_length, compute_auto_orbit_radius
 from ..core.comfy_utils import rendered_to_comfy
@@ -114,6 +119,17 @@ class Body2COLMAP_RenderSplat:
                     "default": False,
                     "tooltip": "Generate new point cloud from splat (if False, preserves original from b2c_data if available)"
                 }),
+
+                # Original camera override
+                "override_cam_from_mesh": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": (
+                        "Anchor the path so one frame sits exactly on the original "
+                        "camera, instead of using path elevation/azimuth/radius. "
+                        "Works with Circular and Helical Path. Requires b2c_data from "
+                        "a mesh render that also had override_cam_from_mesh enabled."
+                    )
+                }),
             }
         }
 
@@ -123,7 +139,8 @@ class Body2COLMAP_RenderSplat:
                bg_color_r=1.0, bg_color_g=1.0, bg_color_b=1.0,
                device="cuda",
                pointcloud_samples=10000,
-               override_pointcloud=False):
+               override_pointcloud=False,
+               override_cam_from_mesh=False):
         """
         Render all camera positions and return batch of images + masks.
 
@@ -137,6 +154,9 @@ class Body2COLMAP_RenderSplat:
             fill_ratio: Viewport fill ratio for auto-radius
             bg_color_r/g/b: Background color RGB components
             device: torch device ("cuda" or "cpu")
+            override_cam_from_mesh: Anchor the path to the original camera,
+                reusing the orbit target and framed focal length recorded by
+                an override-mode mesh render.
 
         Returns:
             images: Tensor of shape [N, H, W, 3] in [0,1] range (ComfyUI IMAGE format)
@@ -161,6 +181,9 @@ class Body2COLMAP_RenderSplat:
                 "to reuse its camera positions."
             )
 
+        if override_cam_from_mesh:
+            self._validate_override_inputs(path_config, b2c_data)
+
         logger.info(
             f"[Body2COLMAP] Rendering splat scene: "
             f"{len(splat_scene)} Gaussians, SH degree {splat_scene.sh_degree}"
@@ -171,14 +194,27 @@ class Body2COLMAP_RenderSplat:
         if effective_mm <= 0 and b2c_data:
             effective_mm = b2c_data.get("focal_length_mm", 0.0)
 
+        if (override_cam_from_mesh and focal_length_mm > 0
+                and b2c_data and b2c_data.get("focal_length_mm", 0.0) > 0
+                and not np.isclose(focal_length_mm, b2c_data["focal_length_mm"])):
+            logger.warning(
+                f"[Body2COLMAP] focal_length_mm={focal_length_mm:.2f} overrides the "
+                f"{b2c_data['focal_length_mm']:.2f}mm the source dataset was framed at. "
+                "The anchor frame will no longer match the reference image warped "
+                "during that render. Set focal_length_mm to 0 to inherit it."
+            )
+
         if path_config is not None:
             # Generate cameras from path configuration
-            cameras, focal_length = self._cameras_from_path(
+            cameras, focal_length, anchor_frame_index = self._cameras_from_path(
                 path_config, b2c_data, splat_scene,
-                width, height, effective_mm, fill_ratio
+                width, height, effective_mm, fill_ratio,
+                override_cam_from_mesh
             )
         else:
-            # Reuse cameras from b2c_data
+            # Reuse cameras from b2c_data verbatim, so its anchor keys still
+            # describe this render and pass through untouched below.
+            anchor_frame_index = None
             cameras = b2c_data["cameras"]
             if effective_mm > 0:
                 focal_length = focal_length_mm_to_pixels(effective_mm, width)
@@ -276,8 +312,12 @@ class Body2COLMAP_RenderSplat:
         # path is not meaningful for our freshly-rendered output).
         _REBUILT_KEYS = {"cameras", "image_names", "points_3d", "resolution",
                          "focal_length_mm", "splat_path"}
-        # A path_config builds a brand-new orbit that generally does not pass
-        # through the original camera, so any inherited anchor is meaningless.
+        # A path_config builds a brand-new orbit, so any inherited anchor stops
+        # describing this render: drop both keys and let the anchored branch
+        # below re-publish them if we anchored the new path ourselves.  Reused
+        # cameras keep theirs untouched — anchor_position stays correct even
+        # after Drop / Rotate Views renumber the frames, which is exactly why
+        # the position, not the index, is the durable key.
         _ANCHOR_KEYS = {"anchor_frame_index", "anchor_position"}
         skip_keys = _REBUILT_KEYS | _ANCHOR_KEYS if path_config is not None else _REBUILT_KEYS
         if b2c_data:
@@ -285,13 +325,66 @@ class Body2COLMAP_RenderSplat:
                 if key not in skip_keys:
                     b2c_output[key] = value
 
+        if anchor_frame_index is not None:
+            b2c_output["anchor_frame_index"] = anchor_frame_index
+            b2c_output["anchor_position"] = np.asarray(
+                cameras[anchor_frame_index].position, dtype=np.float32
+            )
+
         return (images_tensor, masks_tensor, b2c_output)
 
+    @staticmethod
+    def _validate_override_inputs(path_config, b2c_data):
+        """Check the preconditions for anchoring a path to the original camera.
+
+        Anchoring assumes the original camera sits at the world origin. That
+        only holds for a dataset rendered with the mesh node's own
+        override_cam_from_mesh, which skips auto-orient; a normal render
+        rotates the scene and breaks the assumption. The mesh node writes
+        original_focal_length only in override mode, so its presence is the
+        marker.
+        """
+        if path_config is None:
+            raise ValueError(
+                "override_cam_from_mesh requires a path_config — there is no path "
+                "to anchor when cameras are reused verbatim from b2c_data. Either "
+                "connect a Circular or Helical Path node, or disable the option "
+                "(reused cameras already carry the original render's anchor)."
+            )
+
+        pattern = path_config["pattern"]
+        if pattern not in ("circular", "helical"):
+            raise ValueError(
+                f"override_cam_from_mesh only works with Circular Path and "
+                f"Helical Path, got '{pattern}' path."
+            )
+
+        if b2c_data is None:
+            raise ValueError(
+                "override_cam_from_mesh requires b2c_data from a mesh render that "
+                "also had override_cam_from_mesh enabled — that is where the orbit "
+                "target and original camera are recorded."
+            )
+
+        missing = [k for k in ("orbit_target", "original_focal_length")
+                   if b2c_data.get(k) is None]
+        if missing:
+            raise ValueError(
+                f"override_cam_from_mesh requires b2c_data key(s) {missing}, which "
+                f"are only written by a mesh render with override_cam_from_mesh "
+                f"enabled. The connected dataset was rendered in normal mode, where "
+                f"the scene is auto-oriented and the original camera is no longer at "
+                f"the world origin, so the path cannot be anchored to it."
+            )
+
     def _cameras_from_path(self, path_config, b2c_data, splat_scene,
-                           width, height, focal_length_mm, fill_ratio):
+                           width, height, focal_length_mm, fill_ratio,
+                           override_cam_from_mesh=False):
         """Generate cameras from a path configuration.
 
-        Returns (cameras, focal_length) where focal_length is in pixels.
+        Returns (cameras, focal_length, anchor_frame_index) where focal_length
+        is in pixels and anchor_frame_index is None unless the path was
+        anchored to the original camera.
         """
         if focal_length_mm > 0:
             focal_length = focal_length_mm_to_pixels(focal_length_mm, width)
@@ -302,6 +395,12 @@ class Body2COLMAP_RenderSplat:
         framing = path_config.get("framing", "full")
         pattern = path_config["pattern"]
         params = path_config["params"].copy()  # Don't modify original
+
+        if override_cam_from_mesh:
+            return self._cameras_from_original_camera(
+                pattern, params, b2c_data, width, height,
+                focal_length, focal_length_mm
+            )
 
         # Try to use framing bounds from metadata (computed by mesh renderer)
         bounds = None
@@ -356,6 +455,7 @@ class Body2COLMAP_RenderSplat:
                 n_frames=params["n_frames"],
                 elevation_deg=params["elevation_deg"],
                 start_azimuth_deg=params.get("start_azimuth_deg", 0.0),
+                overlap=params.get("overlap", 1),
                 camera_template=camera_template
             )
         elif pattern == "sinusoidal":
@@ -383,4 +483,95 @@ class Body2COLMAP_RenderSplat:
             f"[Body2COLMAP] Camera path created: {len(cameras)} cameras "
             f"({time.time() - t0:.2f}s)"
         )
-        return cameras, focal_length
+        return cameras, focal_length, None
+
+    def _cameras_from_original_camera(self, pattern, params, b2c_data,
+                                      width, height, focal_length,
+                                      focal_length_mm):
+        """Generate a path anchored to the original (SAM-3D-Body) camera.
+
+        Mirrors the mesh renderer's override mode, but takes the orbit target
+        and framed focal length from b2c_data instead of recomputing them from
+        geometry — that is what keeps the anchor frame identical to the mesh
+        render's, so the reference image warped during that render stays valid
+        here without being re-warped.
+
+        Returns (cameras, focal_length, anchor_frame_index).
+        """
+        if focal_length_mm <= 0:
+            raise ValueError(
+                "override_cam_from_mesh needs a framed focal length, but neither "
+                "the focal_length_mm input nor b2c_data provides one. Re-render "
+                "the source dataset with an up-to-date mesh Render node, which "
+                "records the framed focal length it actually used."
+            )
+
+        # Save -> Load turns the ndarray into a plain list; normalise.
+        orbit_center = np.asarray(b2c_data["orbit_target"], dtype=np.float32)
+
+        camera_template = Camera(
+            focal_length=(focal_length, focal_length),
+            image_size=(width, height)
+        )
+
+        t0 = time.time()
+
+        if pattern == "circular":
+            orbit_params = compute_original_camera_orbit_params(orbit_center)
+            radius = float(orbit_params['radius'])
+            anchor_frame_index = 0
+
+            logger.info(
+                f"[Body2COLMAP] Original camera orbit (circular): radius={radius:.3f}, "
+                f"azimuth={orbit_params['start_azimuth_deg']:.1f}°, "
+                f"elevation={orbit_params['elevation_deg']:.1f}°, "
+                f"fl={focal_length:.1f}px"
+            )
+
+            path_gen = OrbitPath(target=orbit_center, radius=radius)
+            cameras = path_gen.circular(
+                n_frames=params["n_frames"],
+                elevation_deg=orbit_params['elevation_deg'],
+                start_azimuth_deg=orbit_params['start_azimuth_deg'],
+                overlap=params.get("overlap", 1),
+                camera_template=camera_template,
+            )
+        else:
+            # Helical: solve for the frame whose elevation can reach the anchor.
+            # Forward the path node's actual lead-in/lead-out (it defaults to
+            # 30/90, not the solver's 45/45) or the solved index is wrong.
+            helix_params = dict(
+                n_frames=params["n_frames"],
+                n_loops=params["n_loops"],
+                amplitude_deg=params["amplitude_deg"],
+                lead_in_deg=params.get("lead_in_deg", 45.0),
+                lead_out_deg=params.get("lead_out_deg", 45.0),
+            )
+            anchor_info = compute_helical_anchor_params(
+                target=orbit_center, **helix_params
+            )
+            radius = float(anchor_info['radius'])
+            anchor_frame_index = int(anchor_info['anchor_frame_index'])
+
+            logger.info(
+                f"[Body2COLMAP] Original camera orbit (helical): radius={radius:.3f}, "
+                f"anchor_frame={anchor_frame_index}, "
+                f"anchor_azimuth={anchor_info['anchor_azimuth_deg']:.1f}°, "
+                f"anchor_elevation={anchor_info['anchor_elevation_deg']:.2f}°, "
+                f"elevation_offset={anchor_info['elevation_offset_deg']:+.3f}°, "
+                f"fl={focal_length:.1f}px"
+            )
+
+            path_gen = OrbitPath(target=orbit_center, radius=radius)
+            cameras = path_gen.helical(
+                start_azimuth_deg=anchor_info['start_azimuth_deg'],
+                elevation_offset_deg=anchor_info['elevation_offset_deg'],
+                camera_template=camera_template,
+                **helix_params
+            )
+
+        logger.info(
+            f"[Body2COLMAP] Camera path created: {len(cameras)} cameras "
+            f"({time.time() - t0:.2f}s)"
+        )
+        return cameras, focal_length, anchor_frame_index
