@@ -12,8 +12,8 @@ steps:
     paths:
         input: splatted
         output: masked_splatted
-    filter_size: 12
-    dilation: 4
+    filter_size: 6
+    dilation: 2
   - workflow: denoise.json
     paths:
         input: masked_splatted
