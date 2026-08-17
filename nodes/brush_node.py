@@ -39,6 +39,7 @@ class Body2COLMAP_RunBrush:
     INPUT_IS_LIST = {
         "images": True,
         "masks": True,
+        "normal_maps": True,
     }
 
     @classmethod
@@ -115,6 +116,36 @@ class Body2COLMAP_RunBrush:
                     "default": "transparent",
                     "tooltip": "How to interpret alpha channel in images"
                 }),
+                "normal_maps": ("IMAGE", {
+                    "tooltip": (
+                        "Optional per-frame monocular normal maps (e.g. Sapiens2), one per "
+                        "training image. RGB must already encode a camera-space unit normal "
+                        "via (n+1)/2 - this node does not convert. Enables brush's normal-map "
+                        "supervision; requires a brush build with that feature."
+                    )
+                }),
+                "normal_loss_strength": ("FLOAT", {
+                    "default": 0.05,
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.005,
+                    "tooltip": (
+                        "Weight of the normal-map loss. It is a geometry regularizer, not a "
+                        "primary signal: 0.01-0.1 is the useful range. 0 disables supervision "
+                        "entirely. Ignored when normal_maps is not connected."
+                    )
+                }),
+                "normal_loss_step_start": ("INT", {
+                    "default": 5000,
+                    "min": 0,
+                    "max": 100000,
+                    "step": 100,
+                    "tooltip": (
+                        "Training step at which normal supervision starts, so rough geometry "
+                        "can form from the photometric loss first. Ignored when normal_maps "
+                        "is not connected."
+                    )
+                }),
             }
         }
 
@@ -133,6 +164,9 @@ class Body2COLMAP_RunBrush:
         max_splats=10000000,
         refine_every=200,
         alpha_mode="transparent",
+        normal_maps=None,
+        normal_loss_strength=0.05,
+        normal_loss_step_start=5000,
     ):
         """
         Execute brush training on the provided dataset.
@@ -151,6 +185,12 @@ class Body2COLMAP_RunBrush:
             max_splats: Maximum number of splats
             refine_every: Refinement frequency
             alpha_mode: How to interpret alpha channel
+            normal_maps: Optional IMAGE tensor (or List[IMAGE] when batched) of camera-space
+                normal maps, one per training image. When given, they are written to a
+                'normals/' directory beside 'images/' and normal supervision is enabled.
+            normal_loss_strength: Weight of the normal-map loss (ignored without normal_maps)
+            normal_loss_step_start: Step at which normal supervision starts (ignored without
+                normal_maps)
 
         Returns:
             Tuple of (splat_scene, updated_b2c_data)
@@ -179,6 +219,10 @@ class Body2COLMAP_RunBrush:
             refine_every = refine_every[0]
         if isinstance(alpha_mode, list):
             alpha_mode = alpha_mode[0]
+        if isinstance(normal_loss_strength, list):
+            normal_loss_strength = normal_loss_strength[0]
+        if isinstance(normal_loss_step_start, list):
+            normal_loss_step_start = normal_loss_step_start[0]
 
         # Handle batch merging
         if merge_batches:
@@ -195,6 +239,13 @@ class Body2COLMAP_RunBrush:
                     logger.info(f"[Body2COLMAP] Merged {len(masks)} mask batches")
                 elif isinstance(masks, list):
                     masks = masks[0]  # Single batch
+
+            if normal_maps is not None:
+                if isinstance(normal_maps, list) and len(normal_maps) > 1:
+                    normal_maps = torch.cat(normal_maps, dim=0)
+                    logger.info(f"[Body2COLMAP] Merged {len(normal_maps)} normal map batches")
+                elif isinstance(normal_maps, list):
+                    normal_maps = normal_maps[0]  # Single batch
         else:
             # Extract single batch (backward compatible)
             if isinstance(images, list):
@@ -212,6 +263,22 @@ class Body2COLMAP_RunBrush:
                         "Enable merge_batches or disable batching in Load Dataset (set batch_size=0)"
                     )
                 masks = masks[0]
+
+            if normal_maps is not None and isinstance(normal_maps, list):
+                if len(normal_maps) > 1:
+                    raise ValueError(
+                        f"Received {len(normal_maps)} normal map batches but merge_batches=False. "
+                        "Enable merge_batches or disable batching in Load Dataset (set batch_size=0)"
+                    )
+                normal_maps = normal_maps[0]
+
+        # Every training view needs its own normal map, or brush would silently
+        # pair them up by index against the wrong frames.
+        if normal_maps is not None and len(normal_maps) != len(images):
+            raise ValueError(
+                f"Normal map count ({len(normal_maps)}) does not match image count "
+                f"({len(images)}). Every training view needs a matching normal map."
+            )
 
         # 1. Create temporary directory for brush output (persists after function returns)
         timestamp = int(time.time() * 1000)  # milliseconds for uniqueness
@@ -243,13 +310,16 @@ class Body2COLMAP_RunBrush:
             # Convert ComfyUI images to cv2 format
             cv2_images = comfy_to_cv2(images)
 
-            # Save images (with alpha channel if masks provided)
+            # Convert masks from ComfyUI format [B, H, W] float [0,1] to [B, H, W] uint8 [0,255]
+            # Note: ComfyUI MASK is inverted (1.0 = background), so we invert back for alpha channel
+            # Computed once here so the normal map export below can reuse it.
+            alpha_channel = None
             if masks is not None:
-                # Convert masks from ComfyUI format [B, H, W] float [0,1] to [B, H, W] uint8 [0,255]
-                # Note: ComfyUI MASK is inverted (1.0 = background), so we invert back for alpha channel
                 masks_np = masks.cpu().numpy()
                 alpha_channel = ((1.0 - masks_np) * 255).astype(np.uint8)
 
+            # Save images (with alpha channel if masks provided)
+            if alpha_channel is not None:
                 # Save RGBA
                 for i, (img, filename) in enumerate(zip(cv2_images, b2c_data["image_names"])):
                     alpha = alpha_channel[i]  # [H, W]
@@ -276,6 +346,32 @@ class Body2COLMAP_RunBrush:
 
             logger.info(f"[Body2COLMAP] Exported {len(cv2_images)} images to {images_dir}")
 
+            # 4b. Export normal maps to a 'normals/' directory beside 'images/'.
+            # Brush auto-detects this layout; when it is absent the feature is simply
+            # inactive, so a brush build without normal support is unaffected.
+            if normal_maps is not None:
+                normals_dir = temp_path / "normals"
+                normals_dir.mkdir(exist_ok=True)
+
+                cv2_normals = comfy_to_cv2(normal_maps)
+
+                for i, (normal, filename) in enumerate(zip(cv2_normals, b2c_data["image_names"])):
+                    # A normal map that carries its own alpha keeps it; otherwise borrow the
+                    # RGB frame's mask, which is the foreground the loss is restricted to.
+                    if normal.shape[-1] == 3 and alpha_channel is not None:
+                        out = np.dstack([normal, alpha_channel[i]])  # [H, W, 4] - BGRA
+                    else:
+                        out = normal
+
+                    # Brush matches normal maps to frames by stem, and the format requires
+                    # PNG, so force the extension regardless of the RGB frame's.
+                    normal_path = normals_dir / Path(filename).with_suffix(".png").name
+                    cv2.imwrite(str(normal_path), out)
+
+                logger.info(
+                    f"[Body2COLMAP] Exported {len(cv2_normals)} normal maps to {normals_dir}"
+                )
+
             # 5. Optionally unload ComfyUI models
             if unload_models:
                 self._unload_comfy_models()
@@ -300,6 +396,19 @@ class Body2COLMAP_RunBrush:
 
             if masks is not None:
                 cmd.extend(["--alpha-mode", alpha_mode])
+
+            # Only passed when normal maps are supplied, so a brush build without
+            # normal supervision never sees an unknown flag.
+            if normal_maps is not None:
+                if normal_loss_strength <= 0:
+                    logger.warning(
+                        "[Body2COLMAP] Normal maps are connected but normal_loss_strength is 0, "
+                        "so brush will not use them. Set it to 0.01-0.1 to enable supervision."
+                    )
+                cmd.extend([
+                    "--normal-loss-weight", str(normal_loss_strength),
+                    "--normal-loss-start-iter", str(normal_loss_step_start),
+                ])
 
             # 7. Execute brush
             logger.info(f"[Body2COLMAP] Running brush: {' '.join(cmd)}")
