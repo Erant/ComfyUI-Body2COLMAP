@@ -19,3 +19,22 @@ def focal_length_mm_to_pixels(focal_length_mm: float, image_width: int) -> float
         Focal length in pixels for the camera intrinsic matrix
     """
     return (focal_length_mm / FULL_FRAME_SENSOR_WIDTH_MM) * image_width
+
+
+def focal_length_pixels_to_mm(focal_length_px: float, image_width: int) -> float:
+    """
+    Convert focal length from pixels to millimeters (35mm full-frame equivalent).
+
+    Inverse of :func:`focal_length_mm_to_pixels`. Used when a node derives a
+    focal length geometrically (e.g. auto-framing the original camera view)
+    and needs to publish it in b2c_data, where focal length is stored in mm so
+    downstream renders reproduce the same field of view at any resolution.
+
+    Args:
+        focal_length_px: Focal length in pixels
+        image_width: Image width in pixels the focal length applies to
+
+    Returns:
+        Focal length in millimeters (35mm equivalent)
+    """
+    return (focal_length_px / image_width) * FULL_FRAME_SENSOR_WIDTH_MM

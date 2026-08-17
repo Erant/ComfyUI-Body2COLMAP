@@ -76,10 +76,13 @@ class B2C_IMAGE_WARP(TypedDict, total=False):
 
     Produced by the Render node when ``override_cam_from_mesh`` is enabled.
     Consumed by the Generate FirstLast node to warp the reference photo so
-    it aligns with the skeleton rendered at frame 0.
+    it aligns with the skeleton rendered at the anchor frame — frame 0 for a
+    circular path, solved for on a helical one and reported as
+    ``anchor_frame_index`` in b2c_data.
 
     Attributes:
-        camera: Camera object for frame 0 (framed intrinsics + look_at rotation).
+        camera: Camera object for the anchor frame (framed intrinsics +
+            look_at rotation).
         original_focal_length: SAM-3D-Body focal length in pixels (for the
             original photo resolution — not render_size).
         render_size: (width, height) of the rendered output.
