@@ -91,15 +91,17 @@ class Body2COLMAP_LoadDataset:
 
     CATEGORY = "Body2COLMAP"
     FUNCTION = "load"
-    RETURN_TYPES = ("B2C_COLMAP_METADATA", "IMAGE", "MASK", "IMAGE", "STRING")
-    RETURN_NAMES = ("b2c_data", "images", "masks", "reference_image", "prompt")
-    OUTPUT_IS_LIST = (False, True, True, False, False)  # images and masks are lists for batching
+    RETURN_TYPES = ("B2C_COLMAP_METADATA", "IMAGE", "MASK", "IMAGE", "STRING", "IMAGE")
+    RETURN_NAMES = ("b2c_data", "images", "masks", "reference_image", "prompt", "anchor_image")
+    # images and masks are lists for batching
+    OUTPUT_IS_LIST = (False, True, True, False, False, False)
     OUTPUT_TOOLTIPS = (
         "Body2COLMAP dataset metadata (connect to ExportCOLMAP or SaveDataset)",
         "List of image batches (processed sequentially)",
         "List of mask batches (processed sequentially)",
         "Reference image for preview (empty if not saved)",
-        "Prompt text used for the diffusion process (empty if not saved)"
+        "Prompt text used for the diffusion process (empty if not saved)",
+        "Anchor conditioning frame for Inject Anchor (None if the dataset has none)"
     )
 
     @classmethod
@@ -130,6 +132,7 @@ class Body2COLMAP_LoadDataset:
             ├── frame_00002_.png
             ├── ...
             ├── reference.png (optional)
+            ├── anchor.png (optional)
             ├── splat.ply (optional)
             ├── metadata.json
             └── pointcloud.npz
@@ -144,6 +147,9 @@ class Body2COLMAP_LoadDataset:
             masks: List of ComfyUI MASK tensors (one per batch)
             reference_image: ComfyUI IMAGE tensor (or empty if not present)
             prompt: Prompt text string (or empty if not present)
+            anchor_image: ComfyUI IMAGE tensor, or None when the dataset has
+                          no anchor.png.  Inject Anchor treats None as
+                          "nothing to inject" and passes its inputs through.
         """
         # Build full path (absolute paths used as-is, relative paths resolve under ComfyUI output)
         dir_path = Path(directory)
@@ -239,6 +245,21 @@ class Body2COLMAP_LoadDataset:
             reference_tensor = torch.zeros((1, 1, 1, 3), dtype=torch.float32)
             logger.info("[Body2COLMAP] No reference image found")
 
+        # Load anchor conditioning frame if present.  Unlike the reference
+        # image this returns None when missing: Inject Anchor uses that as the
+        # "nothing to inject" signal, and a 1x1 placeholder would just fail its
+        # shape check instead.
+        anchor_path = dataset_path / "anchor.png"
+        if anchor_path.exists():
+            anchor_img = cv2.imread(str(anchor_path), cv2.IMREAD_UNCHANGED)
+            if len(anchor_img.shape) == 3 and anchor_img.shape[2] == 4:
+                anchor_img = anchor_img[:, :, :3]
+            anchor_tensor = cv2_to_comfy_image([anchor_img])
+            logger.info("[Body2COLMAP] Loaded anchor image")
+        else:
+            anchor_tensor = None
+            logger.info("[Body2COLMAP] No anchor image found")
+
         # Load prompt if exists
         prompt_path = dataset_path / "prompt.txt"
         if prompt_path.exists():
@@ -305,9 +326,11 @@ class Body2COLMAP_LoadDataset:
             print(f"[Body2COLMAP] - {len(images_batches)} batches (max {batch_size} images per batch)")
         if reference_path.exists():
             print("[Body2COLMAP] - reference.png")
+        if anchor_tensor is not None:
+            print("[Body2COLMAP] - anchor.png")
         if prompt:
             print("[Body2COLMAP] - prompt.txt")
         if b2c_data.get("splat_path"):
             print(f"[Body2COLMAP] - {splat_filename}")
 
-        return (b2c_data, images_batches, masks_batches, reference_tensor, prompt)
+        return (b2c_data, images_batches, masks_batches, reference_tensor, prompt, anchor_tensor)

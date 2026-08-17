@@ -276,9 +276,13 @@ class Body2COLMAP_RenderSplat:
         # path is not meaningful for our freshly-rendered output).
         _REBUILT_KEYS = {"cameras", "image_names", "points_3d", "resolution",
                          "focal_length_mm", "splat_path"}
+        # A path_config builds a brand-new orbit that generally does not pass
+        # through the original camera, so any inherited anchor is meaningless.
+        _ANCHOR_KEYS = {"anchor_frame_index", "anchor_position"}
+        skip_keys = _REBUILT_KEYS | _ANCHOR_KEYS if path_config is not None else _REBUILT_KEYS
         if b2c_data:
             for key, value in b2c_data.items():
-                if key not in _REBUILT_KEYS:
+                if key not in skip_keys:
                     b2c_output[key] = value
 
         return (images_tensor, masks_tensor, b2c_output)

@@ -123,9 +123,49 @@ Renders images from all camera positions in the path.
 **Depth options:**
 - `depth_colormap`: `grayscale`, `viridis`, `plasma`, `inferno`, `magma`
 
+**Original-camera anchoring:**
+- `override_cam_from_mesh` (False): Derive the orbit from the mesh's position
+  relative to the SAM-3D-Body camera, so one frame sits *exactly* at the
+  original viewpoint. Works with **Circular** and **Helical** paths.
+  - Circular keeps a constant elevation, so the anchor is frame 0 (and, with
+    the default `overlap=1`, the last frame as well).
+  - Helical sweeps elevation, so the anchor frame is solved for — the node
+    logs which frame it landed on. It also overrides the path node's
+    `start_azimuth_deg` and applies a sub-degree uniform elevation tilt.
+    If the original camera's elevation falls outside `±amplitude_deg`, or the
+    helix is sampled too coarsely to reach it, the node errors with the widget
+    to adjust.
+  - The anchor is recorded in `b2c_data` as `anchor_position` (durable) and
+    `anchor_frame_index` (informational — it goes stale once views are dropped
+    or reordered), and enables the `image_warp` output.
+
 **Outputs:**
 - `images`: Batch tensor [N, H, W, 3] for SaveImage/PreviewImage
 - `render_data`: Metadata for ExportCOLMAP node
+
+### 📌 Inject Anchor Frame
+
+Overwrites every orbit frame sitting at the original camera with a supplied
+image — typically the reference photo warped by **Generate FirstLast**, giving
+a diffusion pass a real conditioning frame.
+
+```
+Render (override_cam_from_mesh) ──image_warp──> Generate FirstLast ──┐
+                                                                     ▼
+Render ──b2c_data / images / masks──────────────> Inject Anchor Frame
+```
+
+- Matches frames by **camera position** against `b2c_data["anchor_position"]`,
+  not by the recorded index, so it survives Drop Views / Rotate Views / Filter FoV.
+- Scans the whole batch: the path passes the anchor once, but more than one
+  frame can land there (circular `overlap=1` puts it first *and* last).
+- Injected frames get a fully-opaque mask.
+- With no `anchor_image` connected — or a dataset that carries none — the
+  inputs pass straight through.
+
+**Save Dataset** takes an optional `anchor_image` (written as `anchor.png`) and
+**Load Dataset** returns it as the `anchor_image` output (`None` when absent),
+so the anchor frame can be re-injected after later pipeline steps overwrite it.
 
 ### 📦 Export COLMAP
 

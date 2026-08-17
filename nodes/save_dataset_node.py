@@ -116,6 +116,13 @@ class Body2COLMAP_SaveDataset:
                 "reference_image": ("IMAGE", {
                     "tooltip": "Optional reference image saved as reference.png for preview"
                 }),
+                "anchor_image": ("IMAGE", {
+                    "tooltip": (
+                        "Optional anchor conditioning frame saved as anchor.png, so it "
+                        "can be re-injected after a Save → Load round-trip "
+                        "(see the Inject Anchor node)"
+                    )
+                }),
                 "prompt": ("STRING", {
                     "forceInput": True,
                     "tooltip": "Optional prompt text saved as prompt.txt alongside the dataset"
@@ -123,7 +130,7 @@ class Body2COLMAP_SaveDataset:
             }
         }
 
-    def save(self, b2c_data, images, output_directory, auto_increment=True, merge_batches=False, masks=None, reference_image=None, prompt=None):
+    def save(self, b2c_data, images, output_directory, auto_increment=True, merge_batches=False, masks=None, reference_image=None, anchor_image=None, prompt=None):
         """
         Save Body2COLMAP dataset to disk.
 
@@ -134,6 +141,7 @@ class Body2COLMAP_SaveDataset:
             ├── frame_00002_.png
             ├── ...
             ├── reference.png (optional)
+            ├── anchor.png (optional)
             ├── splat.ply (optional, if splat_path in b2c_data)
             ├── metadata.json
             └── pointcloud.npz
@@ -146,6 +154,7 @@ class Body2COLMAP_SaveDataset:
             merge_batches: If True, merge batched inputs into single dataset
             masks: Optional ComfyUI MASK tensor or List[MASK] when batched
             reference_image: Optional reference image for preview
+            anchor_image: Optional anchor conditioning frame (saved as anchor.png)
             prompt: Optional prompt text to save alongside the dataset
 
         Returns:
@@ -163,6 +172,8 @@ class Body2COLMAP_SaveDataset:
             merge_batches = merge_batches[0]
         if reference_image is not None and isinstance(reference_image, list):
             reference_image = reference_image[0]
+        if anchor_image is not None and isinstance(anchor_image, list):
+            anchor_image = anchor_image[0]
         if prompt is not None and isinstance(prompt, list):
             prompt = prompt[0]
 
@@ -265,6 +276,16 @@ class Body2COLMAP_SaveDataset:
             cv2.imwrite(str(ref_path), ref_img)
             logger.info("[Body2COLMAP] Saved reference image")
 
+        # Save anchor conditioning frame if provided, so Load Dataset can hand
+        # it back to Inject Anchor after a round-trip.
+        anchor_saved = False
+        if anchor_image is not None and len(anchor_image) > 0:
+            anchor_cv2 = comfy_to_cv2(anchor_image)
+            anchor_path = output_path / "anchor.png"
+            cv2.imwrite(str(anchor_path), anchor_cv2[0])
+            anchor_saved = True
+            logger.info("[Body2COLMAP] Saved anchor image")
+
         # Save prompt if provided
         if prompt is not None and prompt.strip():
             prompt_path = output_path / "prompt.txt"
@@ -357,6 +378,8 @@ class Body2COLMAP_SaveDataset:
         print(f"[Body2COLMAP] - {len(positions)} points")
         if reference_image is not None:
             print("[Body2COLMAP] - reference.png")
+        if anchor_saved:
+            print("[Body2COLMAP] - anchor.png")
         if prompt is not None and prompt.strip():
             print("[Body2COLMAP] - prompt.txt")
         if metadata.get("splat_filename"):

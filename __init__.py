@@ -72,6 +72,7 @@ from .nodes.generate_firstlast_node import Body2COLMAP_GenerateFirstLast
 from .nodes.filter_fov_node import Body2COLMAP_FilterFoV
 from .nodes.replace_views_node import Body2COLMAP_ReplaceViews
 from .nodes.rotate_views_node import Body2COLMAP_RotateViews
+from .nodes.inject_anchor_node import Body2COLMAP_InjectAnchor
 from .nodes.save_splat_node import Body2COLMAP_SaveSplat
 
 # Node class mappings for ComfyUI
@@ -96,6 +97,7 @@ NODE_CLASS_MAPPINGS = {
     "Body2COLMAP_FilterFoV": Body2COLMAP_FilterFoV,
     "Body2COLMAP_ReplaceViews": Body2COLMAP_ReplaceViews,
     "Body2COLMAP_RotateViews": Body2COLMAP_RotateViews,
+    "Body2COLMAP_InjectAnchor": Body2COLMAP_InjectAnchor,
     "Body2COLMAP_SaveSplat": Body2COLMAP_SaveSplat,
 }
 
@@ -121,6 +123,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Body2COLMAP_FilterFoV": "🔭 Filter FoV",
     "Body2COLMAP_ReplaceViews": "🔄 Replace Views",
     "Body2COLMAP_RotateViews": "🔄 Rotate Views",
+    "Body2COLMAP_InjectAnchor": "📌 Inject Anchor Frame",
     "Body2COLMAP_SaveSplat": "💾 Save Gaussian Splat",
 }
 

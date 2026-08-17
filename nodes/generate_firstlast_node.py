@@ -11,12 +11,14 @@ logger = logging.getLogger(__name__)
 
 
 class Body2COLMAP_GenerateFirstLast:
-    """Warp a reference image to align with the skeleton rendered at frame 0.
+    """Warp a reference image to align with the skeleton at the anchor frame.
 
     Takes B2C_IMAGE_WARP (from Render node with override_cam_from_mesh) and
     the original reference photo, and produces a warped version that matches
     the rendered skeleton's viewpoint.  Useful as diffusion conditioning for
-    the first and last frames of a circular orbit.
+    the orbit frame(s) sitting at the original camera — frame 0 and the last
+    frame of a circular orbit, or the solved-for frame of a helical one.
+    Feed the result to Inject Anchor to write it into the batch.
     """
 
     CATEGORY = "Body2COLMAP"
@@ -24,7 +26,7 @@ class Body2COLMAP_GenerateFirstLast:
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("warped_image",)
     OUTPUT_TOOLTIPS = (
-        "Reference image warped to match the rendered skeleton at frame 0",
+        "Reference image warped to match the rendered skeleton at the anchor frame",
     )
 
     @classmethod
@@ -41,8 +43,8 @@ class Body2COLMAP_GenerateFirstLast:
 
         The warp accounts for the focal-length zoom (auto-framing) and the
         slight rotation correction from look_at, transforming the original
-        photo so it aligns pixel-for-pixel with the rendered skeleton at
-        frame 0 of the orbit.
+        photo so it aligns pixel-for-pixel with the rendered skeleton at the
+        orbit's anchor frame.
 
         Args:
             image_warp: B2C_IMAGE_WARP dict with camera, original_focal_length,
