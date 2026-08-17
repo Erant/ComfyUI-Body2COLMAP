@@ -1,0 +1,76 @@
+{
+  "1": {
+    "inputs": {
+      "directory": [
+        "4",
+        0
+      ],
+      "batch_size": 1
+    },
+    "class_type": "Body2COLMAP_LoadDataset",
+    "_meta": {
+      "title": "📂 Load Dataset"
+    }
+  },
+  "2": {
+    "inputs": {
+      "output_directory": [
+        "5",
+        0
+      ],
+      "auto_increment": false,
+      "merge_batches": true,
+      "b2c_data": [
+        "1",
+        0
+      ],
+      "images": [
+        "3",
+        0
+      ]
+    },
+    "class_type": "Body2COLMAP_ExportCOLMAP",
+    "_meta": {
+      "title": "📦 Export COLMAP"
+    }
+  },
+  "3": {
+    "inputs": {
+      "model": "RMBG-2.0",
+      "sensitivity": 1,
+      "process_res": 1024,
+      "mask_blur": 0,
+      "mask_offset": 0,
+      "invert_output": false,
+      "refine_foreground": false,
+      "background": "Alpha",
+      "background_color": "#222222",
+      "image": [
+        "1",
+        1
+      ]
+    },
+    "class_type": "RMBG",
+    "_meta": {
+      "title": "Remove Background (RMBG)"
+    }
+  },
+  "4": {
+    "inputs": {
+      "key": "input"
+    },
+    "class_type": "Body2COLMAP_Placeholder",
+    "_meta": {
+      "title": "🔌 Placeholder"
+    }
+  },
+  "5": {
+    "inputs": {
+      "key": "output"
+    },
+    "class_type": "Body2COLMAP_Placeholder",
+    "_meta": {
+      "title": "🔌 Placeholder"
+    }
+  }
+}

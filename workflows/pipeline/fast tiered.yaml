@@ -1,0 +1,52 @@
+steps:
+  - workflow: denoise.json
+    paths:
+        input: initial
+        output: circular
+    strength: 1.0
+  - workflow: resplat_helical.json
+    paths:
+        input: circular
+        output: splatted
+  - workflow: mask_splat.json
+    paths:
+        input: splatted
+        output: masked_splatted
+    filter_size: 12
+    dilation: 4
+  - workflow: denoise.json
+    paths:
+        input: masked_splatted
+        output: helical
+    strength: 0.8
+  - workflow: resplat_tiered.json
+    paths:
+        input: helical
+        output: resplatted
+  - workflow: mask_splat.json
+    paths:
+        input: resplatted
+        output: masked_resplatted
+    filter_size: 4
+    dilation: 0
+  - workflow: denoise.json
+    paths:
+        input: masked_resplatted
+        output: tiered
+    strength: 0.8
+  - workflow: upscale.json
+    paths:
+        input: tiered
+        output: upscaled
+  - workflow: colmap.json
+    paths:
+        input: upscaled
+        output: colmap
+
+
+
+
+
+
+
+

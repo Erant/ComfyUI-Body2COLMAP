@@ -1,0 +1,338 @@
+{
+  "1": {
+    "inputs": {
+      "directory": [
+        "23",
+        0
+      ],
+      "batch_size": 1
+    },
+    "class_type": "Body2COLMAP_LoadDataset",
+    "_meta": {
+      "title": "📂 Load Dataset"
+    }
+  },
+  "6": {
+    "inputs": {
+      "width": [
+        "28",
+        2
+      ],
+      "height": [
+        "28",
+        3
+      ],
+      "focal_length_mm": 0,
+      "fill_ratio": 0.8,
+      "bg_color_r": 1,
+      "bg_color_g": 1,
+      "bg_color_b": 1,
+      "device": "cuda",
+      "pointcloud_samples": 10000,
+      "override_pointcloud": false,
+      "splat_scene": [
+        "21",
+        0
+      ],
+      "path_config": [
+        "13",
+        0
+      ],
+      "b2c_data": [
+        "21",
+        1
+      ]
+    },
+    "class_type": "Body2COLMAP_RenderSplat",
+    "_meta": {
+      "title": "🎬 Render Multi-View (Splat)"
+    }
+  },
+  "10": {
+    "inputs": {
+      "width": [
+        "28",
+        2
+      ],
+      "height": [
+        "28",
+        3
+      ],
+      "focal_length_mm": 0,
+      "fill_ratio": 0.8,
+      "bg_color_r": 1,
+      "bg_color_g": 1,
+      "bg_color_b": 1,
+      "device": "cuda",
+      "pointcloud_samples": 10000,
+      "override_pointcloud": false,
+      "splat_scene": [
+        "21",
+        0
+      ],
+      "path_config": [
+        "14",
+        0
+      ],
+      "b2c_data": [
+        "21",
+        1
+      ]
+    },
+    "class_type": "Body2COLMAP_RenderSplat",
+    "_meta": {
+      "title": "🎬 Render Multi-View (Splat)"
+    }
+  },
+  "11": {
+    "inputs": {
+      "width": [
+        "28",
+        2
+      ],
+      "height": [
+        "28",
+        3
+      ],
+      "focal_length_mm": 0,
+      "fill_ratio": 0.8,
+      "bg_color_r": 1,
+      "bg_color_g": 1,
+      "bg_color_b": 1,
+      "device": "cuda",
+      "pointcloud_samples": 10000,
+      "override_pointcloud": true,
+      "splat_scene": [
+        "21",
+        0
+      ],
+      "path_config": [
+        "12",
+        0
+      ],
+      "b2c_data": [
+        "21",
+        1
+      ]
+    },
+    "class_type": "Body2COLMAP_RenderSplat",
+    "_meta": {
+      "title": "🎬 Render Multi-View (Splat)"
+    }
+  },
+  "12": {
+    "inputs": {
+      "n_frames": 81,
+      "elevation_deg": -30,
+      "radius": 0,
+      "start_azimuth_deg": 0,
+      "overlap": 2,
+      "framing": "full",
+      "initial_rotation": 0
+    },
+    "class_type": "Body2COLMAP_CircularPath",
+    "_meta": {
+      "title": "🌐 Circular Path"
+    }
+  },
+  "13": {
+    "inputs": {
+      "n_frames": 81,
+      "elevation_deg": 0,
+      "radius": 0,
+      "start_azimuth_deg": 0,
+      "overlap": 2,
+      "framing": "full",
+      "initial_rotation": 0
+    },
+    "class_type": "Body2COLMAP_CircularPath",
+    "_meta": {
+      "title": "🌐 Circular Path"
+    }
+  },
+  "14": {
+    "inputs": {
+      "n_frames": 81,
+      "elevation_deg": 30,
+      "radius": 0,
+      "start_azimuth_deg": 0,
+      "overlap": 2,
+      "framing": "full",
+      "initial_rotation": 0
+    },
+    "class_type": "Body2COLMAP_CircularPath",
+    "_meta": {
+      "title": "🌐 Circular Path"
+    }
+  },
+  "19": {
+    "inputs": {
+      "pointcloud_mode": "first",
+      "pointcloud_samples": 10000,
+      "merge_batches": false,
+      "b2c_data_1": [
+        "11",
+        2
+      ],
+      "images_1": [
+        "11",
+        0
+      ],
+      "masks_1": [
+        "11",
+        1
+      ],
+      "b2c_data_2": [
+        "6",
+        2
+      ],
+      "images_2": [
+        "6",
+        0
+      ],
+      "masks_2": [
+        "6",
+        1
+      ],
+      "b2c_data_3": [
+        "10",
+        2
+      ],
+      "images_3": [
+        "10",
+        0
+      ],
+      "masks_3": [
+        "10",
+        1
+      ]
+    },
+    "class_type": "Body2COLMAP_MergeDatasets",
+    "_meta": {
+      "title": "🔗 Merge Datasets"
+    }
+  },
+  "20": {
+    "inputs": {
+      "output_directory": [
+        "24",
+        0
+      ],
+      "auto_increment": false,
+      "merge_batches": false,
+      "b2c_data": [
+        "19",
+        0
+      ],
+      "images": [
+        "19",
+        1
+      ],
+      "masks": [
+        "19",
+        2
+      ],
+      "reference_image": [
+        "1",
+        3
+      ],
+      "prompt": [
+        "1",
+        4
+      ]
+    },
+    "class_type": "Body2COLMAP_SaveDataset",
+    "_meta": {
+      "title": "💾 Save Dataset"
+    }
+  },
+  "21": {
+    "inputs": {
+      "brush_path": [
+        "27",
+        0
+      ],
+      "total_steps": 30000,
+      "sh_degree": 3,
+      "merge_batches": true,
+      "unload_models": true,
+      "with_viewer": false,
+      "max_resolution": 1920,
+      "max_splats": 10000000,
+      "refine_every": 200,
+      "alpha_mode": "transparent",
+      "b2c_data": [
+        "1",
+        0
+      ],
+      "images": [
+        "22",
+        0
+      ]
+    },
+    "class_type": "Body2COLMAP_RunBrush",
+    "_meta": {
+      "title": "🎨 Train Gaussian Splat (Brush)"
+    }
+  },
+  "22": {
+    "inputs": {
+      "model": "RMBG-2.0",
+      "sensitivity": 1,
+      "process_res": 1024,
+      "mask_blur": 0,
+      "mask_offset": 0,
+      "invert_output": false,
+      "refine_foreground": false,
+      "background": "Alpha",
+      "background_color": "#222222",
+      "image": [
+        "1",
+        1
+      ]
+    },
+    "class_type": "RMBG",
+    "_meta": {
+      "title": "Remove Background (RMBG)"
+    }
+  },
+  "23": {
+    "inputs": {
+      "key": "input"
+    },
+    "class_type": "Body2COLMAP_Placeholder",
+    "_meta": {
+      "title": "🔌 Placeholder"
+    }
+  },
+  "24": {
+    "inputs": {
+      "key": "output"
+    },
+    "class_type": "Body2COLMAP_Placeholder",
+    "_meta": {
+      "title": "🔌 Placeholder"
+    }
+  },
+  "27": {
+    "inputs": {
+      "key": "brush_path"
+    },
+    "class_type": "Body2COLMAP_Placeholder",
+    "_meta": {
+      "title": "🔌 Placeholder"
+    }
+  },
+  "28": {
+    "inputs": {
+      "b2c_data": [
+        "1",
+        0
+      ]
+    },
+    "class_type": "Body2COLMAP_UnpackDataset",
+    "_meta": {
+      "title": "📦 Unpack Dataset"
+    }
+  }
+}

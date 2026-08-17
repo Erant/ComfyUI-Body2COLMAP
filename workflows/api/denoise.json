@@ -1,0 +1,331 @@
+{
+  "6": {
+    "inputs": {
+      "text": [
+        "188",
+        0
+      ],
+      "clip": [
+        "195",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  },
+  "7": {
+    "inputs": {
+      "text": "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走, chewing, tattoos, 眼球运动，眨眼，眼动追踪，微表情，面部抽动，头部移动, 小头, 小脸",
+      "clip": [
+        "195",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Negative Prompt)"
+    }
+  },
+  "8": {
+    "inputs": {
+      "samples": [
+        "118",
+        0
+      ],
+      "vae": [
+        "196",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "57": {
+    "inputs": {
+      "add_noise": "enable",
+      "noise_seed": [
+        "197",
+        0
+      ],
+      "steps": 6,
+      "cfg": 1,
+      "sampler_name": "uni_pc",
+      "scheduler": "beta",
+      "start_at_step": 0,
+      "end_at_step": 2,
+      "return_with_leftover_noise": "enable",
+      "model": [
+        "189",
+        0
+      ],
+      "positive": [
+        "117",
+        0
+      ],
+      "negative": [
+        "117",
+        1
+      ],
+      "latent_image": [
+        "117",
+        2
+      ]
+    },
+    "class_type": "KSamplerAdvanced",
+    "_meta": {
+      "title": "KSampler (Advanced)"
+    }
+  },
+  "58": {
+    "inputs": {
+      "add_noise": "disable",
+      "noise_seed": 0,
+      "steps": 6,
+      "cfg": 1,
+      "sampler_name": "uni_pc",
+      "scheduler": "beta",
+      "start_at_step": 2,
+      "end_at_step": 10000,
+      "return_with_leftover_noise": "disable",
+      "model": [
+        "190",
+        0
+      ],
+      "positive": [
+        "117",
+        0
+      ],
+      "negative": [
+        "117",
+        1
+      ],
+      "latent_image": [
+        "57",
+        0
+      ]
+    },
+    "class_type": "KSamplerAdvanced",
+    "_meta": {
+      "title": "KSampler (Advanced)"
+    }
+  },
+  "117": {
+    "inputs": {
+      "width": [
+        "198",
+        2
+      ],
+      "height": [
+        "198",
+        3
+      ],
+      "length": 81,
+      "batch_size": 1,
+      "strength": [
+        "200",
+        0
+      ],
+      "positive": [
+        "6",
+        0
+      ],
+      "negative": [
+        "7",
+        0
+      ],
+      "vae": [
+        "196",
+        0
+      ],
+      "control_video": [
+        "179",
+        1
+      ],
+      "control_masks": [
+        "199",
+        0
+      ],
+      "reference_image": [
+        "179",
+        3
+      ]
+    },
+    "class_type": "WanVaceToVideo",
+    "_meta": {
+      "title": "WanVaceToVideo"
+    }
+  },
+  "118": {
+    "inputs": {
+      "trim_amount": [
+        "117",
+        3
+      ],
+      "samples": [
+        "58",
+        0
+      ]
+    },
+    "class_type": "TrimVideoLatent",
+    "_meta": {
+      "title": "TrimVideoLatent"
+    }
+  },
+  "179": {
+    "inputs": {
+      "directory": [
+        "193",
+        0
+      ],
+      "batch_size": 81
+    },
+    "class_type": "Body2COLMAP_LoadDataset",
+    "_meta": {
+      "title": "📂 Load Dataset"
+    }
+  },
+  "183": {
+    "inputs": {
+      "output_directory": [
+        "194",
+        0
+      ],
+      "auto_increment": false,
+      "merge_batches": true,
+      "b2c_data": [
+        "179",
+        0
+      ],
+      "images": [
+        "8",
+        0
+      ],
+      "reference_image": [
+        "179",
+        3
+      ],
+      "prompt": [
+        "179",
+        4
+      ]
+    },
+    "class_type": "Body2COLMAP_SaveDataset",
+    "_meta": {
+      "title": "💾 Save Dataset"
+    }
+  },
+  "188": {
+    "inputs": {
+      "string": "The subject is $SUBJECT_DESC$. An unmoving wax statue of the subject undergoes a 360 degree rotation. The subject is unmoving and unblinking, their expression frozen as the camera continues to rotate around them. Their eyes fixed in place. The camera rotates at a constant speed, smoothly completing an orbit around the subject. The subject remains consistent throughout the rotation. 人物正面朝向，表情中性，目光固定，眼睛保持静止，无眨眼，面部完全静止，如雕像般静止，画面无时间变化",
+      "find": "$SUBJECT_DESC$",
+      "replace": [
+        "179",
+        4
+      ]
+    },
+    "class_type": "StringReplace",
+    "_meta": {
+      "title": "Replace"
+    }
+  },
+  "189": {
+    "inputs": {
+      "key": "model_high"
+    },
+    "class_type": "Body2COLMAP_Placeholder",
+    "_meta": {
+      "title": "🔌 Placeholder"
+    }
+  },
+  "190": {
+    "inputs": {
+      "key": "model_low"
+    },
+    "class_type": "Body2COLMAP_Placeholder",
+    "_meta": {
+      "title": "🔌 Placeholder"
+    }
+  },
+  "193": {
+    "inputs": {
+      "key": "input"
+    },
+    "class_type": "Body2COLMAP_Placeholder",
+    "_meta": {
+      "title": "🔌 Placeholder"
+    }
+  },
+  "194": {
+    "inputs": {
+      "key": "output"
+    },
+    "class_type": "Body2COLMAP_Placeholder",
+    "_meta": {
+      "title": "🔌 Placeholder"
+    }
+  },
+  "195": {
+    "inputs": {
+      "key": "clip"
+    },
+    "class_type": "Body2COLMAP_Placeholder",
+    "_meta": {
+      "title": "🔌 Placeholder"
+    }
+  },
+  "196": {
+    "inputs": {
+      "key": "vae"
+    },
+    "class_type": "Body2COLMAP_Placeholder",
+    "_meta": {
+      "title": "🔌 Placeholder"
+    }
+  },
+  "197": {
+    "inputs": {
+      "key": "seed"
+    },
+    "class_type": "Body2COLMAP_Placeholder",
+    "_meta": {
+      "title": "🔌 Placeholder"
+    }
+  },
+  "198": {
+    "inputs": {
+      "b2c_data": [
+        "179",
+        0
+      ]
+    },
+    "class_type": "Body2COLMAP_UnpackDataset",
+    "_meta": {
+      "title": "📦 Unpack Dataset"
+    }
+  },
+  "199": {
+    "inputs": {
+      "mask": [
+        "179",
+        2
+      ]
+    },
+    "class_type": "InvertMask",
+    "_meta": {
+      "title": "InvertMask"
+    }
+  },
+  "200": {
+    "inputs": {
+      "key": "strength"
+    },
+    "class_type": "Body2COLMAP_Placeholder",
+    "_meta": {
+      "title": "🔌 Placeholder"
+    }
+  }
+}

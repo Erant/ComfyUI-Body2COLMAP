@@ -1,0 +1,137 @@
+{
+  "4": {
+    "inputs": {
+      "model": "seedvr2_ema_3b_fp8_e4m3fn.safetensors",
+      "device": "cuda:0",
+      "blocks_to_swap": 0,
+      "swap_io_components": false,
+      "offload_device": "none",
+      "cache_model": false,
+      "attention_mode": "sdpa"
+    },
+    "class_type": "SeedVR2LoadDiTModel",
+    "_meta": {
+      "title": "SeedVR2 (Down)Load DiT Model"
+    }
+  },
+  "5": {
+    "inputs": {
+      "seed": [
+        "16",
+        0
+      ],
+      "resolution": 1080,
+      "max_resolution": 0,
+      "batch_size": 1,
+      "uniform_batch_size": false,
+      "color_correction": "lab",
+      "temporal_overlap": 0,
+      "prepend_frames": 0,
+      "input_noise_scale": 0,
+      "latent_noise_scale": 0,
+      "offload_device": "cpu",
+      "enable_debug": false,
+      "image": [
+        "11",
+        1
+      ],
+      "dit": [
+        "4",
+        0
+      ],
+      "vae": [
+        "6",
+        0
+      ]
+    },
+    "class_type": "SeedVR2VideoUpscaler",
+    "_meta": {
+      "title": "SeedVR2 Video Upscaler (v2.5.24)"
+    }
+  },
+  "6": {
+    "inputs": {
+      "model": "ema_vae_fp16.safetensors",
+      "device": "cuda:0",
+      "encode_tiled": false,
+      "encode_tile_size": 1024,
+      "encode_tile_overlap": 128,
+      "decode_tiled": false,
+      "decode_tile_size": 1024,
+      "decode_tile_overlap": 128,
+      "tile_debug": "false",
+      "offload_device": "none",
+      "cache_model": false
+    },
+    "class_type": "SeedVR2LoadVAEModel",
+    "_meta": {
+      "title": "SeedVR2 (Down)Load VAE Model"
+    }
+  },
+  "11": {
+    "inputs": {
+      "directory": [
+        "14",
+        0
+      ],
+      "batch_size": 0
+    },
+    "class_type": "Body2COLMAP_LoadDataset",
+    "_meta": {
+      "title": "📂 Load Dataset"
+    }
+  },
+  "13": {
+    "inputs": {
+      "output_directory": [
+        "15",
+        0
+      ],
+      "auto_increment": false,
+      "merge_batches": false,
+      "b2c_data": [
+        "11",
+        0
+      ],
+      "images": [
+        "5",
+        0
+      ],
+      "reference_image": [
+        "11",
+        3
+      ]
+    },
+    "class_type": "Body2COLMAP_SaveDataset",
+    "_meta": {
+      "title": "💾 Save Dataset"
+    }
+  },
+  "14": {
+    "inputs": {
+      "key": "input"
+    },
+    "class_type": "Body2COLMAP_Placeholder",
+    "_meta": {
+      "title": "🔌 Placeholder"
+    }
+  },
+  "15": {
+    "inputs": {
+      "key": "output"
+    },
+    "class_type": "Body2COLMAP_Placeholder",
+    "_meta": {
+      "title": "🔌 Placeholder"
+    }
+  },
+  "16": {
+    "inputs": {
+      "key": "seed"
+    },
+    "class_type": "Body2COLMAP_Placeholder",
+    "_meta": {
+      "title": "🔌 Placeholder"
+    }
+  }
+}

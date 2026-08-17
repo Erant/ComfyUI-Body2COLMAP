@@ -1,0 +1,233 @@
+{
+  "1": {
+    "inputs": {
+      "threshold": 16,
+      "mask": [
+        "2",
+        2
+      ]
+    },
+    "class_type": "ToBinaryMask",
+    "_meta": {
+      "title": "ToBinaryMask"
+    }
+  },
+  "2": {
+    "inputs": {
+      "directory": [
+        "9",
+        0
+      ],
+      "batch_size": 1
+    },
+    "class_type": "Body2COLMAP_LoadDataset",
+    "_meta": {
+      "title": "📂 Load Dataset"
+    }
+  },
+  "3": {
+    "inputs": {
+      "output_directory": [
+        "10",
+        0
+      ],
+      "auto_increment": false,
+      "merge_batches": true,
+      "b2c_data": [
+        "2",
+        0
+      ],
+      "images": [
+        "17",
+        0
+      ],
+      "masks": [
+        "14",
+        0
+      ],
+      "reference_image": [
+        "2",
+        3
+      ],
+      "prompt": [
+        "2",
+        4
+      ]
+    },
+    "class_type": "Body2COLMAP_SaveDataset",
+    "_meta": {
+      "title": "💾 Save Dataset"
+    }
+  },
+  "4": {
+    "inputs": {
+      "mode": "normal",
+      "foreground_opacity": 1,
+      "foreground_scale": 1,
+      "position_x": 50,
+      "position_y": 50,
+      "foreground": [
+        "2",
+        1
+      ],
+      "background": [
+        "11",
+        0
+      ],
+      "foreground_mask": [
+        "16",
+        0
+      ]
+    },
+    "class_type": "AILab_ImageCombiner",
+    "_meta": {
+      "title": "Image Combiner (RMBG) 🖼️"
+    }
+  },
+  "9": {
+    "inputs": {
+      "key": "input"
+    },
+    "class_type": "Body2COLMAP_Placeholder",
+    "_meta": {
+      "title": "🔌 Placeholder"
+    }
+  },
+  "10": {
+    "inputs": {
+      "key": "output"
+    },
+    "class_type": "Body2COLMAP_Placeholder",
+    "_meta": {
+      "title": "🔌 Placeholder"
+    }
+  },
+  "11": {
+    "inputs": {
+      "width": [
+        "12",
+        2
+      ],
+      "height": [
+        "12",
+        3
+      ],
+      "batch_size": 1,
+      "color": 0
+    },
+    "class_type": "EmptyImage",
+    "_meta": {
+      "title": "EmptyImage"
+    }
+  },
+  "12": {
+    "inputs": {
+      "b2c_data": [
+        "2",
+        0
+      ]
+    },
+    "class_type": "Body2COLMAP_UnpackDataset",
+    "_meta": {
+      "title": "📦 Unpack Dataset"
+    }
+  },
+  "13": {
+    "inputs": {
+      "width": [
+        "12",
+        2
+      ],
+      "height": [
+        "12",
+        3
+      ],
+      "batch_size": [
+        "12",
+        4
+      ],
+      "color": 0
+    },
+    "class_type": "EmptyImage",
+    "_meta": {
+      "title": "EmptyImage"
+    }
+  },
+  "14": {
+    "inputs": {
+      "channel": "red",
+      "image": [
+        "13",
+        0
+      ]
+    },
+    "class_type": "ImageToMask",
+    "_meta": {
+      "title": "Convert Image to Mask"
+    }
+  },
+  "15": {
+    "inputs": {
+      "mask": [
+        "1",
+        0
+      ]
+    },
+    "class_type": "InvertMask",
+    "_meta": {
+      "title": "InvertMask"
+    }
+  },
+  "16": {
+    "inputs": {
+      "dilation": [
+        "19",
+        0
+      ],
+      "mask": [
+        "15",
+        0
+      ]
+    },
+    "class_type": "ImpactDilateMask",
+    "_meta": {
+      "title": "Dilate Mask"
+    }
+  },
+  "17": {
+    "inputs": {
+      "size": [
+        "18",
+        0
+      ],
+      "sigma_color": 0.5,
+      "sigma_space": 100,
+      "images": [
+        "4",
+        0
+      ]
+    },
+    "class_type": "BilateralFilterImage",
+    "_meta": {
+      "title": "Bilateral Filter Image"
+    }
+  },
+  "18": {
+    "inputs": {
+      "key": "filter_size"
+    },
+    "class_type": "Body2COLMAP_Placeholder",
+    "_meta": {
+      "title": "🔌 Placeholder"
+    }
+  },
+  "19": {
+    "inputs": {
+      "key": "dilation"
+    },
+    "class_type": "Body2COLMAP_Placeholder",
+    "_meta": {
+      "title": "🔌 Placeholder"
+    }
+  }
+}
