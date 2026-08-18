@@ -60,6 +60,7 @@ class Body2COLMAP_ExportCOLMAP:
     INPUT_IS_LIST = {
         "images": True,
         "masks": True,
+        "normal_maps": True,
     }
 
     @classmethod
@@ -83,10 +84,17 @@ class Body2COLMAP_ExportCOLMAP:
             "optional": {
                 "images": ("IMAGE",),
                 "masks": ("MASK",),
+                "normal_maps": ("IMAGE", {
+                    "tooltip": (
+                        "Optional per-frame normal maps, one per image. Written to a "
+                        "'normals/' directory beside the images, matched by filename stem. "
+                        "Ignored if images is not also provided."
+                    )
+                }),
             }
         }
 
-    def export(self, b2c_data, output_directory, auto_increment=True, merge_batches=False, images=None, masks=None):
+    def export(self, b2c_data, output_directory, auto_increment=True, merge_batches=False, images=None, masks=None, normal_maps=None):
         """
         Export COLMAP format files.
 
@@ -107,6 +115,8 @@ class Body2COLMAP_ExportCOLMAP:
             merge_batches: If True, merge batched inputs into single dataset
             images: Optional ComfyUI IMAGE tensor or List[IMAGE] when batched
             masks: Optional ComfyUI MASK tensor or List[MASK] when batched
+            normal_maps: Optional ComfyUI IMAGE tensor or List[IMAGE] when batched, one per
+                image. Written to a 'normals/' directory beside the images.
 
         Note:
             Point cloud must be pre-sampled in render nodes and included in b2c_data.
@@ -136,6 +146,12 @@ class Body2COLMAP_ExportCOLMAP:
                     masks = torch.cat(masks, dim=0)
                 elif isinstance(masks, list):
                     masks = masks[0]  # Single batch
+
+            if normal_maps is not None:
+                if isinstance(normal_maps, list) and len(normal_maps) > 1:
+                    normal_maps = torch.cat(normal_maps, dim=0)
+                elif isinstance(normal_maps, list):
+                    normal_maps = normal_maps[0]  # Single batch
         else:
             # Extract single batch (backward compatible)
             if images is not None and isinstance(images, list):
@@ -153,6 +169,22 @@ class Body2COLMAP_ExportCOLMAP:
                         "Enable merge_batches or disable batching in Load Dataset (set batch_size=0)"
                     )
                 masks = masks[0]
+
+            if normal_maps is not None and isinstance(normal_maps, list):
+                if len(normal_maps) > 1:
+                    raise ValueError(
+                        f"Received {len(normal_maps)} normal map batches but merge_batches=False. "
+                        "Enable merge_batches or disable batching in Load Dataset (set batch_size=0)"
+                    )
+                normal_maps = normal_maps[0]
+
+        # Every training view needs its own normal map, or downstream tools would
+        # silently pair them up by index against the wrong frames.
+        if normal_maps is not None and images is not None and len(normal_maps) != len(images):
+            raise ValueError(
+                f"Normal map count ({len(normal_maps)}) does not match image count "
+                f"({len(images)}). Every image needs a matching normal map."
+            )
 
         # Extract data from b2c_data
         cameras = b2c_data["cameras"]
@@ -174,6 +206,7 @@ class Body2COLMAP_ExportCOLMAP:
         output_path.mkdir(parents=True, exist_ok=True)
 
         # Save images if provided
+        alpha_channel = None
         if images is not None:
             # Convert ComfyUI images to CV2 format
             cv2_images = comfy_to_cv2(images)
@@ -206,6 +239,28 @@ class Body2COLMAP_ExportCOLMAP:
                 for img, filename in zip(cv2_images, image_names):
                     img_path = output_path / filename
                     cv2.imwrite(str(img_path), img)
+
+        # Save normal maps if provided, to a 'normals/' directory beside the images
+        # (matches the layout brush's normal-map supervision expects).
+        if normal_maps is not None and images is not None:
+            normals_dir = output_path / "normals"
+            normals_dir.mkdir(exist_ok=True)
+
+            cv2_normals = comfy_to_cv2(normal_maps)
+
+            for i, (normal, filename) in enumerate(zip(cv2_normals, image_names)):
+                # A normal map that carries its own alpha keeps it; otherwise borrow the
+                # RGB frame's mask, which is the foreground the loss is restricted to.
+                if normal.shape[-1] == 3 and alpha_channel is not None:
+                    out = np.dstack([normal, alpha_channel[i]])  # [H, W, 4] - BGRA
+                else:
+                    out = normal
+
+                # Match Brush's expectation: same stem as the RGB frame, forced to PNG.
+                normal_path = normals_dir / Path(filename).with_suffix(".png").name
+                cv2.imwrite(str(normal_path), out)
+
+            print(f"[Body2COLMAP] - {len(cv2_normals)} normal map files")
 
         # Create COLMAP exporter with pre-sampled point cloud
         exporter = ColmapExporter(
